@@ -48,6 +48,7 @@ document.getElementById('file-input').addEventListener('change', handleFileImpor
 document.getElementById('back-btn').addEventListener('click', () => showView('meetings'));
 document.getElementById('save-settings').addEventListener('click', saveSettings);
 document.getElementById('chat-form').addEventListener('submit', handleChat);
+document.getElementById('export-pptx-btn').addEventListener('click', exportPresentation);
 
 document.getElementById('groq-key').value = settings.apiKey || '';
 document.getElementById('groq-model').value = settings.model || 'openai/gpt-oss-20b';
@@ -237,6 +238,12 @@ function openMeeting(id) {
   document.getElementById('detail-status').textContent = m.status;
   document.getElementById('detail-status').className = `badge ${m.status}`;
 
+  const exportBtn = document.getElementById('export-pptx-btn');
+  const canExport = m.status === 'ready' && m.summary;
+  exportBtn.hidden = !canExport;
+  exportBtn.disabled = false;
+  exportBtn.textContent = '📊 PowerPoint';
+
   const panel = document.getElementById('summary-content');
   if (m.status === 'processing') {
     panel.innerHTML = '<p class="hint">Génération du résumé en cours...</p>';
@@ -345,4 +352,142 @@ function esc(s) {
   const d = document.createElement('div');
   d.textContent = s || '';
   return d.innerHTML;
+}
+
+// ─── Export PowerPoint ───
+const PPTX_COLORS = {
+  blue: '464775',
+  lightBlue: '6264A7',
+  white: 'FFFFFF',
+  dark: '212C40',
+  muted: 'CCCCDD',
+  footer: '9999BB',
+};
+
+function safeFilename(title) {
+  const name = (title || 'reunion').replace(/[<>:"/\\|?*]/g, '').trim() || 'reunion';
+  const date = new Date().toISOString().slice(0, 10);
+  return `${date} - ${name.slice(0, 60)}.pptx`;
+}
+
+function addSectionSlide(pptx, heading, items, numbered = false) {
+  const slide = pptx.addSlide();
+  slide.addShape(pptx.ShapeType.rect, {
+    x: 0, y: 0, w: '100%', h: 1.2,
+    fill: { color: PPTX_COLORS.lightBlue },
+    line: { color: PPTX_COLORS.lightBlue },
+  });
+  slide.addText(heading, {
+    x: 0.6, y: 0.25, w: 8.8, h: 0.7,
+    fontSize: 24, bold: true, color: PPTX_COLORS.white,
+  });
+  const lines = items.map((item, i) => {
+    const prefix = numbered ? `${i + 1}. ` : '→ ';
+    return `${prefix}${item}`;
+  });
+  slide.addText(lines.join('\n'), {
+    x: 0.8, y: 1.6, w: 8.4, h: 5.2,
+    fontSize: 18, color: PPTX_COLORS.dark, valign: 'top',
+    lineSpacingMultiple: 1.2,
+  });
+}
+
+function addTextSlide(pptx, heading, bodyText) {
+  const slide = pptx.addSlide();
+  slide.addShape(pptx.ShapeType.rect, {
+    x: 0, y: 0, w: '100%', h: 1.2,
+    fill: { color: PPTX_COLORS.lightBlue },
+    line: { color: PPTX_COLORS.lightBlue },
+  });
+  slide.addText(heading, {
+    x: 0.6, y: 0.25, w: 8.8, h: 0.7,
+    fontSize: 24, bold: true, color: PPTX_COLORS.white,
+  });
+  slide.addText(bodyText, {
+    x: 0.8, y: 1.6, w: 8.4, h: 5.2,
+    fontSize: 16, color: PPTX_COLORS.dark, valign: 'top',
+    lineSpacingMultiple: 1.4,
+  });
+}
+
+function generatePresentation(title, summary, dateIso) {
+  if (typeof PptxGenJS === 'undefined') {
+    throw new Error('Bibliothèque PowerPoint non chargée. Rechargez la page.');
+  }
+
+  const pptx = new PptxGenJS();
+  pptx.layout = 'LAYOUT_WIDE';
+  pptx.author = 'TeamsBrief';
+  pptx.title = title;
+
+  const dateStr = dateIso
+    ? new Date(dateIso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
+    : new Date().toLocaleDateString('fr-FR');
+
+  const titleSlide = pptx.addSlide();
+  titleSlide.background = { color: PPTX_COLORS.blue };
+  titleSlide.addText(title, {
+    x: 0.8, y: 2.2, w: 8.4, h: 1.5,
+    fontSize: 32, bold: true, color: PPTX_COLORS.white,
+  });
+  titleSlide.addText(`Compte-rendu · ${dateStr}`, {
+    x: 0.8, y: 3.8, w: 8.4, h: 0.8,
+    fontSize: 16, color: PPTX_COLORS.muted,
+  });
+  titleSlide.addText('Généré par TeamsBrief', {
+    x: 0.8, y: 6.8, w: 4, h: 0.4,
+    fontSize: 11, color: PPTX_COLORS.footer,
+  });
+
+  if (summary.tldr?.length) addSectionSlide(pptx, 'En bref', summary.tldr);
+  if (summary.decisions?.length) addSectionSlide(pptx, 'Décisions prises', summary.decisions, true);
+
+  if (summary.actions?.length) {
+    const actionLines = summary.actions.map(a => {
+      let line = `☐  ${a.who || '?'} — ${a.what || ''}`;
+      if (a.when && a.when !== 'non précisé') line += `  (${a.when})`;
+      return line;
+    });
+    addSectionSlide(pptx, 'Actions à faire', actionLines);
+  }
+
+  if (summary.explanation_for_absent) {
+    addTextSlide(pptx, 'Pour les absents', summary.explanation_for_absent);
+  }
+
+  if (summary.open_questions?.length) {
+    addSectionSlide(pptx, 'Questions en suspens', summary.open_questions);
+  }
+
+  const closing = pptx.addSlide();
+  closing.background = { color: PPTX_COLORS.blue };
+  closing.addText('Merci', {
+    x: 0.8, y: 2.8, w: 8.4, h: 1.2,
+    fontSize: 40, bold: true, color: PPTX_COLORS.white, align: 'center',
+  });
+  closing.addText('TeamsBrief — Synthèse de réunion Teams', {
+    x: 0.8, y: 4.2, w: 8.4, h: 0.6,
+    fontSize: 14, color: 'AAAACC', align: 'center',
+  });
+
+  return pptx;
+}
+
+async function exportPresentation() {
+  const m = meetings.find(x => x.id === currentMeetingId);
+  if (!m?.summary) return;
+
+  const btn = document.getElementById('export-pptx-btn');
+  btn.disabled = true;
+  btn.textContent = 'Génération...';
+
+  try {
+    const pptx = generatePresentation(m.title, m.summary, m.date);
+    await pptx.writeFile({ fileName: safeFilename(m.title) });
+  } catch (err) {
+    alert(err.message || 'Erreur lors de la génération PowerPoint.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📊 PowerPoint';
+  }
 }

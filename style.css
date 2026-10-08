@@ -114,6 +114,20 @@ body {
   margin-bottom: 1rem;
 }
 
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-secondary {
+  background: #464775;
+  color: #fff;
+}
+
+.btn-secondary:hover { background: #3a3b62; }
+.btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

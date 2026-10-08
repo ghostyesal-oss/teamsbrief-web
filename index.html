@@ -36,7 +36,10 @@
         <div class="card" id="summary-panel">
           <div class="card-header">
             <h2 id="detail-title">Réunion</h2>
-            <span id="detail-status" class="badge">ready</span>
+            <div class="card-actions">
+              <button id="export-pptx-btn" class="btn btn-secondary" type="button" hidden>📊 PowerPoint</button>
+              <span id="detail-status" class="badge">ready</span>
+            </div>
           </div>
           <div id="summary-content"></div>
         </div>
@@ -73,6 +76,7 @@
     </section>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
