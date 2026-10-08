@@ -128,25 +128,30 @@ async function callGroq(messages, jsonMode = false) {
   };
   if (jsonMode) payload.response_format = { type: 'json_object' };
 
-  // Proxy sur le même domaine (Vercel) — évite CORS
-  const endpoints = ['/api/groq', 'https://api.groq.com/openai/v1/chat/completions'];
+  // Proxy : même domaine, puis Vercel (pour GitHub Pages / autres hôtes statiques)
+  const endpoints = [
+    '/api/groq',
+    'https://teamsbrief-web.vercel.app/api/groq',
+    'https://api.groq.com/openai/v1/chat/completions',
+  ];
 
   for (const url of endpoints) {
     try {
-      const isProxy = url.startsWith('/');
+      const isLocalProxy = url.startsWith('/');
+      const isRemoteProxy = url.includes('/api/groq');
       const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(isProxy ? {} : { Authorization: `Bearer ${settings.apiKey}` }),
+          ...(isLocalProxy || isRemoteProxy ? {} : { Authorization: `Bearer ${settings.apiKey}` }),
         },
-        body: JSON.stringify(isProxy ? { ...payload, apiKey: settings.apiKey } : payload),
+        body: JSON.stringify(isLocalProxy || isRemoteProxy ? { ...payload, apiKey: settings.apiKey } : payload),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         const msg = err.error?.message || err.detail || `Erreur ${res.status}`;
         if (res.status === 429) throw new Error('Limite Groq atteinte. Attendez 10 secondes.');
-        if (url === endpoints[0]) continue;
+        if (url !== endpoints[endpoints.length - 1]) continue;
         throw new Error(msg);
       }
       const data = await res.json();
