@@ -1,96 +1,98 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TeamsBrief — Résumés Teams</title>
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <header class="header">
-    <div class="logo">TeamsBrief</div>
-    <nav>
-      <button class="nav-btn active" data-view="meetings">Réunions</button>
-      <button class="nav-btn" data-view="settings">Paramètres</button>
-    </nav>
-  </header>
-
-  <main class="container">
-    <!-- Liste réunions -->
-    <section id="view-meetings" class="view">
-      <div class="toolbar">
-        <h1>Mes réunions</h1>
-        <label class="btn btn-primary">
-          + Importer .vtt
-          <input type="file" id="file-input" accept=".vtt,.txt" hidden>
-        </label>
-      </div>
-      <p class="hint">Importez une transcription Teams (.vtt) téléchargée depuis le chat de réunion.</p>
-      <div id="meetings-list" class="meetings-list"></div>
-    </section>
-
-    <!-- Détail réunion -->
-    <section id="view-detail" class="view hidden">
-      <button id="back-btn" class="link-btn">← Retour</button>
-
-      <div id="charts-panel" class="card charts-panel hidden">
-        <h3>📊 Tableaux de bord</h3>
-        <div class="charts-grid">
-          <div class="chart-box"><canvas id="chart-distribution"></canvas></div>
-          <div class="chart-box"><canvas id="chart-actions"></canvas></div>
-          <div class="chart-box"><canvas id="chart-topics"></canvas></div>
-          <div class="chart-box"><canvas id="chart-radar"></canvas></div>
-          <div class="chart-box"><canvas id="chart-highlights"></canvas></div>
-          <div class="chart-box"><canvas id="chart-status"></canvas></div>
-        </div>
-      </div>
-
-      <div class="detail-grid">
-        <div class="card" id="summary-panel">
-          <div class="card-header">
-            <h2 id="detail-title">Réunion</h2>
-            <div class="card-actions">
-              <button id="export-pptx-btn" class="btn btn-secondary" type="button" hidden>📊 PowerPoint</button>
-              <span id="detail-status" class="badge">ready</span>
-            </div>
-          </div>
-          <div id="summary-content"></div>
-        </div>
-        <div class="card chat-panel">
-          <h3>🤖 Agent Groq</h3>
-          <p class="hint">Posez vos questions sur cette réunion</p>
-          <div id="chat-messages" class="chat-messages"></div>
-          <div id="chat-suggestions" class="suggestions"></div>
-          <form id="chat-form" class="chat-form">
-            <input type="text" id="chat-input" placeholder="Posez votre question..." autocomplete="off">
-            <button type="submit" class="btn btn-primary">Envoyer</button>
-          </form>
-        </div>
-      </div>
-    </section>
-
-    <!-- Paramètres -->
-    <section id="view-settings" class="view hidden">
-      <h1>Paramètres</h1>
-      <div class="card">
-        <label class="field">
-          <span>Clé API Groq</span>
-          <input type="password" id="groq-key" placeholder="gsk_...">
-          <small>Gratuit sur <a href="https://console.groq.com" target="_blank">console.groq.com</a></small>
-        </label>
-        <label class="field">
-          <span>Modèle</span>
-          <input type="text" id="groq-model" value="openai/gpt-oss-20b">
-          <small>Recommandé : openai/gpt-oss-20b</small>
-        </label>
-        <button id="save-settings" class="btn btn-primary">Enregistrer</button>
-        <p id="settings-status" class="status-msg"></p>
-      </div>
-    </section>
-  </main>
-
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-  <script src="app.js"></script>
-</body>
-</html>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TeamsBrief — Résumés Teams</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="logo">TeamsBrief</div>
+    <nav>
+      <button class="nav-btn active" data-view="meetings">Réunions</button>
+      <button class="nav-btn" data-view="settings">Paramètres</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section id="view-meetings" class="view">
+      <div class="toolbar">
+        <h1>Mes réunions</h1>
+        <label class="btn btn-primary">
+          + Importer .vtt
+          <input type="file" id="file-input" accept=".vtt,.txt" hidden>
+        </label>
+      </div>
+      <p class="hint">Importez une transcription Teams (.vtt) téléchargée depuis le chat de réunion.</p>
+      <div id="meetings-list" class="meetings-list"></div>
+    </section>
+
+    <section id="view-detail" class="view hidden">
+      <div class="detail-topbar">
+        <button id="back-btn" class="link-btn">← Retour</button>
+        <h2 id="detail-title" class="detail-topbar-title">Réunion</h2>
+        <div class="card-actions">
+          <button id="charts-toggle" class="btn btn-ghost hidden" type="button">📊 Graphiques</button>
+          <button id="export-pptx-btn" class="btn btn-secondary" type="button" hidden>PowerPoint</button>
+          <span id="detail-status" class="badge">ready</span>
+        </div>
+      </div>
+
+      <div class="detail-layout">
+        <div class="detail-main">
+          <div id="charts-panel" class="charts-panel hidden">
+            <div class="charts-grid">
+              <div class="chart-box"><canvas id="chart-distribution"></canvas></div>
+              <div class="chart-box"><canvas id="chart-actions"></canvas></div>
+              <div class="chart-box"><canvas id="chart-topics"></canvas></div>
+              <div class="chart-box"><canvas id="chart-radar"></canvas></div>
+              <div class="chart-box"><canvas id="chart-highlights"></canvas></div>
+              <div class="chart-box"><canvas id="chart-status"></canvas></div>
+            </div>
+          </div>
+
+          <div class="card summary-panel">
+            <div id="summary-content"></div>
+          </div>
+        </div>
+
+        <div class="card chat-panel">
+          <div class="chat-header">
+            <h3>Agent Groq</h3>
+          </div>
+          <div id="chat-messages" class="chat-messages"></div>
+          <div id="chat-suggestions" class="suggestions"></div>
+          <form id="chat-form" class="chat-form">
+            <input type="text" id="chat-input" placeholder="Posez votre question..." autocomplete="off">
+            <button type="submit" class="btn btn-primary">Envoyer</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-settings" class="view hidden">
+      <h1>Paramètres</h1>
+      <div class="card settings-card">
+        <label class="field">
+          <span>Clé API Groq</span>
+          <input type="password" id="groq-key" placeholder="gsk_...">
+          <small>Gratuit sur <a href="https://console.groq.com" target="_blank">console.groq.com</a></small>
+        </label>
+        <label class="field">
+          <span>Modèle</span>
+          <input type="text" id="groq-model" value="openai/gpt-oss-20b">
+          <small>Recommandé : openai/gpt-oss-20b</small>
+        </label>
+        <button id="save-settings" class="btn btn-primary">Enregistrer</button>
+        <p id="settings-status" class="status-msg"></p>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
+

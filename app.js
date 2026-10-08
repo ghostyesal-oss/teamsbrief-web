@@ -57,6 +57,7 @@ document.getElementById('back-btn').addEventListener('click', () => showView('me
 document.getElementById('save-settings').addEventListener('click', saveSettings);
 document.getElementById('chat-form').addEventListener('submit', handleChat);
 document.getElementById('export-pptx-btn').addEventListener('click', exportPresentation);
+document.getElementById('charts-toggle').addEventListener('click', toggleCharts);
 
 document.getElementById('groq-key').value = settings.apiKey || '';
 document.getElementById('groq-model').value = settings.model || 'openai/gpt-oss-20b';
@@ -255,23 +256,26 @@ function openMeeting(id) {
   const canExport = m.status === 'ready' && m.summary;
   exportBtn.hidden = !canExport;
   exportBtn.disabled = false;
-  exportBtn.textContent = '📊 PowerPoint';
+  exportBtn.textContent = 'PowerPoint';
+
+  const chartsToggle = document.getElementById('charts-toggle');
+  const chartsPanel = document.getElementById('charts-panel');
+  chartsPanel.classList.add('hidden');
+  chartsToggle.classList.add('hidden');
+  chartsToggle.classList.remove('active');
 
   const panel = document.getElementById('summary-content');
   if (m.status === 'processing') {
     destroyCharts();
-    document.getElementById('charts-panel').classList.add('hidden');
     panel.innerHTML = '<p class="hint">Génération du résumé en cours...</p>';
   } else if (m.status === 'error') {
     destroyCharts();
-    document.getElementById('charts-panel').classList.add('hidden');
     panel.innerHTML = `<p style="color:#991b1b">${esc(m.error || 'Erreur')}</p>`;
   } else if (m.summary) {
     panel.innerHTML = renderSummary(m.summary);
     renderCharts(m.summary);
   } else {
     destroyCharts();
-    document.getElementById('charts-panel').classList.add('hidden');
   }
 
   renderChat(m);
@@ -443,21 +447,31 @@ function buildChartMetrics(summary) {
   };
 }
 
+function toggleCharts() {
+  const panel = document.getElementById('charts-panel');
+  const btn = document.getElementById('charts-toggle');
+  const show = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden', !show);
+  btn.classList.toggle('active', show);
+  btn.textContent = show ? 'Masquer graphiques' : 'Graphiques';
+}
+
 function renderCharts(summary) {
   destroyCharts();
   const panel = document.getElementById('charts-panel');
-  if (!summary || typeof Chart === 'undefined') {
-    panel.classList.add('hidden');
-    return;
-  }
+  const toggle = document.getElementById('charts-toggle');
+  panel.classList.add('hidden');
+  toggle.classList.add('hidden');
+  toggle.classList.remove('active');
+  toggle.textContent = 'Graphiques';
+
+  if (!summary || typeof Chart === 'undefined') return;
 
   const m = buildChartMetrics(summary);
   const hasData = m.distribution.values.length || m.actions.values.length || m.topics.values.length;
-  if (!hasData) {
-    panel.classList.add('hidden');
-    return;
-  }
-  panel.classList.remove('hidden');
+  if (!hasData) return;
+
+  toggle.classList.remove('hidden');
 
   const base = {
     responsive: true,
@@ -843,6 +857,6 @@ async function exportPresentation() {
     alert(err.message || 'Erreur lors de la génération PowerPoint.');
   } finally {
     btn.disabled = false;
-    btn.textContent = '📊 PowerPoint';
+    btn.textContent = 'PowerPoint';
   }
 }
