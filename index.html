@@ -13,6 +13,20 @@
 <body>
   <div id="toast-container" class="toast-container"></div>
 
+  <div id="report-overlay" class="report-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="report-modal-title">
+    <div class="report-modal">
+      <div class="report-toolbar">
+        <h3 id="report-modal-title">Rapport</h3>
+        <div class="report-toolbar-actions">
+          <button id="report-download-btn" class="btn btn-ghost btn-sm" type="button">Télécharger</button>
+          <button id="report-print-btn" class="btn btn-ghost btn-sm" type="button">Imprimer</button>
+          <button id="report-close-btn" class="btn btn-primary btn-sm" type="button">Fermer</button>
+        </div>
+      </div>
+      <div id="report-body" class="report-body"></div>
+    </div>
+  </div>
+
   <header class="header">
     <div class="logo">TeamsBrief</div>
     <nav>
@@ -71,6 +85,7 @@
         <button id="back-btn" class="link-btn">← Retour</button>
         <h2 id="detail-title" class="detail-topbar-title">Réunion</h2>
         <div class="card-actions">
+          <button id="read-report-btn" class="btn btn-primary btn-sm hidden" type="button">Lire le rapport</button>
           <button id="charts-toggle" class="btn btn-ghost hidden" type="button">Graphiques</button>
           <button id="copy-summary-btn" class="btn btn-ghost hidden" type="button">Copier</button>
           <button id="export-md-btn" class="btn btn-ghost hidden" type="button">Markdown</button>
