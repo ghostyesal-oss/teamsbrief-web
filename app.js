@@ -2,6 +2,9 @@
 
 const STORAGE_KEY = 'teamsbrief_meetings';
 const SETTINGS_KEY = 'teamsbrief_settings';
+const THEME_KEY = 'teamsbrief_theme';
+
+const STATUS_LABELS = { ready: 'Prêt', processing: 'En cours', error: 'Erreur' };
 
 const SUGGESTIONS = [
   "Qu'est-ce qui a été décidé ?",
@@ -58,10 +61,43 @@ document.getElementById('save-settings').addEventListener('click', saveSettings)
 document.getElementById('chat-form').addEventListener('submit', handleChat);
 document.getElementById('export-pptx-btn').addEventListener('click', exportPresentation);
 document.getElementById('charts-toggle').addEventListener('click', toggleCharts);
+document.getElementById('delete-meeting-btn').addEventListener('click', deleteCurrentMeeting);
+document.getElementById('reprocess-btn').addEventListener('click', reprocessMeeting);
+document.getElementById('copy-summary-btn').addEventListener('click', copySummary);
+document.getElementById('export-md-btn').addEventListener('click', exportMarkdown);
+document.getElementById('clear-chat-btn').addEventListener('click', clearChat);
+document.getElementById('search-input').addEventListener('input', renderMeetingsList);
+document.getElementById('filter-status').addEventListener('change', renderMeetingsList);
+document.getElementById('transcript-search').addEventListener('input', filterTranscript);
+document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+document.getElementById('toggle-key').addEventListener('click', toggleKeyVisibility);
+document.getElementById('backup-export').addEventListener('click', exportBackup);
+document.getElementById('backup-import').addEventListener('change', importBackup);
+document.getElementById('settings-backup').addEventListener('click', exportBackup);
+document.getElementById('settings-restore').addEventListener('change', importBackup);
+document.getElementById('onboarding-go').addEventListener('click', () => showView('settings'));
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+});
+
+const dropzone = document.getElementById('dropzone');
+['dragenter', 'dragover'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('dragover'); }));
+['dragleave', 'drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
+dropzone.addEventListener('drop', e => { if (e.dataTransfer.files.length) processFiles([...e.dataTransfer.files]); });
+
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    if (!views.meetings.classList.contains('hidden')) document.getElementById('search-input').focus();
+  }
+});
 
 document.getElementById('groq-key').value = settings.apiKey || '';
-document.getElementById('groq-model').value = settings.model || 'openai/gpt-oss-20b';
-
+const modelEl = document.getElementById('groq-model');
+if (settings.model) modelEl.value = settings.model;
+applyTheme(localStorage.getItem(THEME_KEY) || 'light');
+updateOnboarding();
 renderMeetingsList();
 
 // ─── Navigation ───
@@ -100,10 +136,82 @@ function loadSettings() {
 function saveSettings() {
   settings = {
     apiKey: document.getElementById('groq-key').value.trim(),
-    model: document.getElementById('groq-model').value.trim() || 'openai/gpt-oss-20b',
+    model: document.getElementById('groq-model').value || 'openai/gpt-oss-20b',
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   document.getElementById('settings-status').textContent = 'Paramètres enregistrés.';
+  updateOnboarding();
+  toast('Paramètres enregistrés', 'success');
+}
+
+function toast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+function statusLabel(s) { return STATUS_LABELS[s] || s; }
+
+function newMeetingId() {
+  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function toggleTheme() {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  localStorage.setItem(THEME_KEY, next);
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  document.getElementById('theme-toggle').textContent = theme === 'dark' ? '☀️' : '🌙';
+  chartInstances.forEach(c => c.destroy());
+  chartInstances = [];
+  const m = meetings.find(x => x.id === currentMeetingId);
+  if (m?.summary) renderCharts(m.summary);
+}
+
+function toggleKeyVisibility() {
+  const inp = document.getElementById('groq-key');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+function updateOnboarding() {
+  document.getElementById('onboarding-banner').classList.toggle('hidden', !!settings.apiKey);
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.getElementById('tab-summary').classList.toggle('hidden', name !== 'summary');
+  document.getElementById('tab-transcript').classList.toggle('hidden', name !== 'transcript');
+}
+
+function exportBackup() {
+  const blob = new Blob([JSON.stringify({ meetings, settings, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `teamsbrief-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  toast('Sauvegarde exportée');
+}
+
+async function importBackup(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = '';
+  try {
+    const data = JSON.parse(await file.text());
+    if (data.meetings) meetings = data.meetings;
+    if (data.settings) { settings = data.settings; localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
+    saveMeetings();
+    document.getElementById('groq-key').value = settings.apiKey || '';
+    if (settings.model) document.getElementById('groq-model').value = settings.model;
+    updateOnboarding();
+    renderMeetingsList();
+    toast(`${meetings.length} réunion(s) restaurée(s)`);
+  } catch { toast('Fichier invalide', 'error'); }
 }
 
 // ─── VTT Parser ───
@@ -173,28 +281,43 @@ async function callGroq(messages, jsonMode = false) {
 
 // ─── Import fichier ───
 async function handleFileImport(e) {
-  const file = e.target.files[0];
-  if (!file) return;
+  const files = [...e.target.files];
   e.target.value = '';
+  if (files.length) await processFiles(files);
+}
 
+async function processFiles(files) {
   if (!settings.apiKey) {
-    alert('Configurez votre clé Groq dans Paramètres d\'abord.');
+    toast('Configurez votre clé Groq d\'abord', 'error');
     showView('settings');
     return;
   }
+  const vttFiles = files.filter(f => /\.(vtt|txt)$/i.test(f.name));
+  if (!vttFiles.length) { toast('Aucun fichier .vtt trouvé', 'error'); return; }
 
+  toast(`Import de ${vttFiles.length} fichier(s)…`);
+  let lastId = null;
+  for (const file of vttFiles) {
+    lastId = await importOneFile(file);
+  }
+  renderMeetingsList();
+  if (lastId) openMeeting(lastId);
+}
+
+async function importOneFile(file) {
   const text = await file.text();
   const transcript = file.name.endsWith('.vtt') || text.startsWith('WEBVTT') ? parseVtt(text) : text;
   const title = file.name.replace(/\.(vtt|txt)$/i, '').replace(/^.*[\\/]/, '') || 'Réunion Teams';
 
   const meeting = {
-    id: Date.now(),
+    id: newMeetingId(),
     title,
     date: new Date().toISOString(),
     transcript,
     summary: null,
     status: 'processing',
     chat: [],
+    doneActions: [],
   };
 
   meetings.unshift(meeting);
@@ -208,37 +331,101 @@ async function handleFileImport(e) {
     ], true);
     meeting.summary = JSON.parse(raw);
     meeting.status = 'ready';
+    toast(`"${title}" prête`);
   } catch (err) {
     meeting.status = 'error';
     meeting.error = err.message;
+    toast(`Erreur : ${title}`, 'error');
   }
 
   saveMeetings();
-  renderMeetingsList();
-  openMeeting(meeting.id);
+  return meeting.id;
+}
+
+async function reprocessMeeting() {
+  const m = meetings.find(x => x.id === currentMeetingId);
+  if (!m) return;
+  m.status = 'processing';
+  m.error = null;
+  saveMeetings();
+  openMeeting(m.id);
+  try {
+    const raw = await callGroq([
+      { role: 'system', content: 'Tu réponds uniquement en JSON valide, en français.' },
+      { role: 'user', content: SUMMARY_PROMPT(m.title, m.transcript) },
+    ], true);
+    m.summary = JSON.parse(raw);
+    m.status = 'ready';
+    toast('Résumé régénéré');
+  } catch (err) {
+    m.status = 'error';
+    m.error = err.message;
+    toast(err.message, 'error');
+  }
+  saveMeetings();
+  openMeeting(m.id);
+}
+
+function deleteMeeting(id) {
+  if (!confirm('Supprimer cette réunion ?')) return;
+  meetings = meetings.filter(m => String(m.id) !== String(id));
+  saveMeetings();
+  if (currentMeetingId === id) showView('meetings');
+  else renderMeetingsList();
+  toast('Réunion supprimée');
+}
+
+function deleteCurrentMeeting() {
+  if (currentMeetingId) deleteMeeting(currentMeetingId);
 }
 
 // ─── Liste ───
 function renderMeetingsList() {
   const el = document.getElementById('meetings-list');
-  if (!meetings.length) {
-    el.innerHTML = '<div class="empty">Aucune réunion. Importez un fichier .vtt Teams.</div>';
+  const q = (document.getElementById('search-input')?.value || '').toLowerCase();
+  const filter = document.getElementById('filter-status')?.value || 'all';
+
+  const filtered = meetings.filter(m => {
+    if (filter !== 'all' && m.status !== filter) return false;
+    if (!q) return true;
+    const hay = `${m.title} ${m.transcript || ''} ${JSON.stringify(m.summary || {})}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  const ready = meetings.filter(m => m.status === 'ready').length;
+  document.getElementById('meetings-stats').textContent = meetings.length
+    ? `${meetings.length} réunion(s) · ${ready} prête(s)`
+    : '';
+
+  if (!filtered.length) {
+    el.innerHTML = meetings.length
+      ? '<div class="empty">Aucun résultat pour cette recherche.</div>'
+      : '<div class="empty"><div class="empty-icon">📋</div>Importez un fichier .vtt Teams pour commencer.</div>';
     return;
   }
-  el.innerHTML = meetings.map(m => `
+
+  el.innerHTML = filtered.map(m => `
     <div class="meeting-item" data-id="${m.id}">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div>
-          <h3>${esc(m.title)}</h3>
-          <p>${new Date(m.date).toLocaleString('fr-FR')}</p>
-        </div>
-        <span class="badge ${m.status}">${m.status}</span>
+      <div class="meeting-item-main">
+        <h3>${esc(m.title)}</h3>
+        <p>${new Date(m.date).toLocaleString('fr-FR')}${m.summary?.decisions?.length ? ` · ${m.summary.decisions.length} décision(s)` : ''}</p>
+      </div>
+      <div class="meeting-meta">
+        <span class="badge ${m.status}">${statusLabel(m.status)}</span>
+        <button class="meeting-delete" data-del="${m.id}" title="Supprimer">✕</button>
       </div>
     </div>
   `).join('');
 
   el.querySelectorAll('.meeting-item').forEach(item => {
-    item.addEventListener('click', () => openMeeting(+item.dataset.id));
+    item.addEventListener('click', e => {
+      if (e.target.closest('.meeting-delete')) return;
+      const id = item.dataset.id;
+      openMeeting(meetings.find(m => String(m.id) === id)?.id ?? id);
+    });
+  });
+  el.querySelectorAll('.meeting-delete').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); deleteMeeting(btn.dataset.del); });
   });
 }
 
@@ -249,31 +436,40 @@ function openMeeting(id) {
   if (!m) return;
 
   document.getElementById('detail-title').textContent = m.title;
-  document.getElementById('detail-status').textContent = m.status;
+  document.getElementById('detail-status').textContent = statusLabel(m.status);
   document.getElementById('detail-status').className = `badge ${m.status}`;
 
-  const exportBtn = document.getElementById('export-pptx-btn');
-  const canExport = m.status === 'ready' && m.summary;
-  exportBtn.hidden = !canExport;
-  exportBtn.disabled = false;
-  exportBtn.textContent = 'PowerPoint';
+  const ready = m.status === 'ready' && m.summary;
+  ['export-pptx-btn', 'copy-summary-btn', 'export-md-btn'].forEach(id => {
+    document.getElementById(id).hidden = !ready;
+  });
+  document.getElementById('reprocess-btn').hidden = m.status !== 'error';
+  document.getElementById('delete-meeting-btn').hidden = false;
+  document.getElementById('export-pptx-btn').disabled = false;
+  document.getElementById('export-pptx-btn').textContent = 'PowerPoint';
 
   const chartsToggle = document.getElementById('charts-toggle');
   const chartsPanel = document.getElementById('charts-panel');
   chartsPanel.classList.add('hidden');
   chartsToggle.classList.add('hidden');
   chartsToggle.classList.remove('active');
+  chartsToggle.textContent = 'Graphiques';
+
+  switchTab('summary');
+  document.getElementById('transcript-content').textContent = m.transcript || '(vide)';
+  document.getElementById('transcript-search').value = '';
 
   const panel = document.getElementById('summary-content');
   if (m.status === 'processing') {
     destroyCharts();
-    panel.innerHTML = '<p class="hint">Génération du résumé en cours...</p>';
+    panel.innerHTML = '<div class="loading-box"><div class="spinner"></div>Génération du résumé en cours…</div>';
   } else if (m.status === 'error') {
     destroyCharts();
-    panel.innerHTML = `<p style="color:#991b1b">${esc(m.error || 'Erreur')}</p>`;
+    panel.innerHTML = `<div class="error-box">${esc(m.error || 'Erreur')}</div>`;
   } else if (m.summary) {
-    panel.innerHTML = renderSummary(m.summary);
+    panel.innerHTML = renderSummary(m, m);
     renderCharts(m.summary);
+    bindActionCheckboxes(m);
   } else {
     destroyCharts();
   }
@@ -285,16 +481,33 @@ function openMeeting(id) {
   views.detail.classList.remove('hidden');
 }
 
-function renderSummary(s) {
+function renderSummary(s, meeting) {
   let html = '';
-  if (s.tldr?.length) {
+  const pres = s.presentation || {};
+
+  if (pres.executive_summary) {
+    html += `<div class="exec-summary">${esc(pres.executive_summary)}</div>`;
+  }
+  if (pres.highlights?.length) {
+    html += `<div class="summary-section"><h4>Points clés</h4>${pres.highlights.map(h => `
+      <div class="highlight-card"><strong>${esc(h.title || h)}</strong>${h.detail ? `<span>${esc(h.detail)}</span>` : ''}</div>
+    `).join('')}</div>`;
+  } else if (s.tldr?.length) {
     html += `<div class="summary-section"><h4>En bref</h4><ul>${s.tldr.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
   }
   if (s.decisions?.length) {
     html += `<div class="summary-section"><h4>Décisions</h4><ul>${s.decisions.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
   }
   if (s.actions?.length) {
-    html += `<div class="summary-section"><h4>Actions</h4><ul>${s.actions.map(a => `<li>☐ ${esc(a.who)} — ${esc(a.what)}${a.when ? ` (${esc(a.when)})` : ''}</li>`).join('')}</ul></div>`;
+    html += `<div class="summary-section"><h4>Actions</h4>${s.actions.map((a, i) => {
+      const done = meeting?.doneActions?.includes(i);
+      return `<div class="action-item${done ? ' done' : ''}"><input type="checkbox" data-action="${i}" ${done ? 'checked' : ''}><span><strong>${esc(a.who)}</strong> — ${esc(a.what)}${a.when && a.when !== 'non précisé' ? `<span class="action-deadline">${esc(a.when)}</span>` : ''}</span></div>`;
+    }).join('')}</div>`;
+  }
+  if (s.topics?.length) {
+    html += `<div class="summary-section"><h4>Thèmes</h4>${s.topics.map(t => `
+      <div class="topic-card"><h5>${esc(t.title)}</h5>${t.summary ? `<p>${esc(t.summary)}</p>` : ''}${t.key_points?.length ? `<ul>${t.key_points.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}</div>
+    `).join('')}</div>`;
   }
   if (s.explanation_for_absent) {
     html += `<div class="summary-section"><h4>Pour les absents</h4><p class="explanation">${esc(s.explanation_for_absent)}</p></div>`;
@@ -305,10 +518,78 @@ function renderSummary(s) {
   return html;
 }
 
+function bindActionCheckboxes(meeting) {
+  document.querySelectorAll('[data-action]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      if (!meeting.doneActions) meeting.doneActions = [];
+      const i = +cb.dataset.action;
+      if (cb.checked) { if (!meeting.doneActions.includes(i)) meeting.doneActions.push(i); }
+      else meeting.doneActions = meeting.doneActions.filter(x => x !== i);
+      cb.closest('.action-item').classList.toggle('done', cb.checked);
+      saveMeetings();
+    });
+  });
+}
+
+function filterTranscript() {
+  const q = document.getElementById('transcript-search').value.trim();
+  const m = meetings.find(x => x.id === currentMeetingId);
+  if (!m) return;
+  const text = m.transcript || '';
+  const el = document.getElementById('transcript-content');
+  if (!q) { el.textContent = text; return; }
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  el.innerHTML = esc(text).replace(re, match => `<mark>${match}</mark>`);
+}
+
+function summaryToMarkdown(m) {
+  const s = m.summary;
+  if (!s) return '';
+  let md = `# ${m.title}\n\n*${new Date(m.date).toLocaleString('fr-FR')}*\n\n`;
+  if (s.presentation?.executive_summary) md += `## Synthèse\n${s.presentation.executive_summary}\n\n`;
+  if (s.tldr?.length) md += `## En bref\n${s.tldr.map(p => `- ${p}`).join('\n')}\n\n`;
+  if (s.decisions?.length) md += `## Décisions\n${s.decisions.map(p => `- ${p}`).join('\n')}\n\n`;
+  if (s.actions?.length) md += `## Actions\n${s.actions.map(a => `- [ ] **${a.who}** — ${a.what}${a.when ? ` (${a.when})` : ''}`).join('\n')}\n\n`;
+  if (s.explanation_for_absent) md += `## Pour les absents\n${s.explanation_for_absent}\n\n`;
+  if (s.open_questions?.length) md += `## Questions\n${s.open_questions.map(p => `- ${p}`).join('\n')}\n`;
+  return md;
+}
+
+async function copySummary() {
+  const m = meetings.find(x => x.id === currentMeetingId);
+  if (!m?.summary) return;
+  await navigator.clipboard.writeText(summaryToMarkdown(m));
+  toast('Résumé copié');
+}
+
+function exportMarkdown() {
+  const m = meetings.find(x => x.id === currentMeetingId);
+  if (!m?.summary) return;
+  const blob = new Blob([summaryToMarkdown(m)], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${m.title.slice(0, 40)}.md`;
+  a.click();
+  toast('Markdown exporté');
+}
+
+function clearChat() {
+  const m = meetings.find(x => x.id === currentMeetingId);
+  if (!m || !confirm('Effacer la conversation ?')) return;
+  m.chat = [];
+  saveMeetings();
+  renderChat(m);
+  toast('Conversation effacée');
+}
+
 // ─── Chat ───
 function renderChat(m) {
   const el = document.getElementById('chat-messages');
-  el.innerHTML = (m.chat || []).map(msg => `
+  if (!m.chat?.length) {
+    el.innerHTML = '<div class="chat-empty">Posez une question sur cette réunion</div>';
+    return;
+  }
+  el.innerHTML = m.chat.map(msg => `
     <div class="chat-bubble ${msg.role}">
       <div class="label">${msg.role === 'user' ? 'Vous' : 'Agent'}</div>
       <div class="content">${esc(msg.content)}</div>
@@ -344,8 +625,8 @@ async function handleChat(e) {
   renderChat(m);
 
   const bubble = document.createElement('div');
-  bubble.className = 'chat-bubble assistant';
-  bubble.innerHTML = '<div class="label">Agent</div><div class="content">Réflexion...</div>';
+  bubble.className = 'chat-bubble assistant typing';
+  bubble.innerHTML = '<div class="label">Agent</div><div class="content">Réflexion…</div>';
   document.getElementById('chat-messages').appendChild(bubble);
   const contentEl = bubble.querySelector('.content');
 
@@ -364,9 +645,11 @@ ${JSON.stringify(m.summary, null, 2)}`,
       ...m.chat.slice(0, -1).map(c => ({ role: c.role, content: c.content })),
       { role: 'user', content: question },
     ]);
+    bubble.classList.remove('typing');
     contentEl.textContent = answer;
     m.chat.push({ role: 'assistant', content: answer });
   } catch (err) {
+    bubble.classList.remove('typing');
     contentEl.textContent = err.message || 'Erreur agent.';
   }
 
@@ -853,8 +1136,9 @@ async function exportPresentation() {
   try {
     const pptx = generatePresentation(m.title, m.summary, m.date);
     await pptx.writeFile({ fileName: safeFilename(m.title) });
+    toast('PowerPoint téléchargé');
   } catch (err) {
-    alert(err.message || 'Erreur lors de la génération PowerPoint.');
+    toast(err.message || 'Erreur PowerPoint', 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = 'PowerPoint';

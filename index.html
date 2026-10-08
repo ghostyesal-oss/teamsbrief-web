@@ -1,98 +1,168 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TeamsBrief — Résumés Teams</title>
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <header class="header">
-    <div class="logo">TeamsBrief</div>
-    <nav>
-      <button class="nav-btn active" data-view="meetings">Réunions</button>
-      <button class="nav-btn" data-view="settings">Paramètres</button>
-    </nav>
-  </header>
-
-  <main class="container">
-    <section id="view-meetings" class="view">
-      <div class="toolbar">
-        <h1>Mes réunions</h1>
-        <label class="btn btn-primary">
-          + Importer .vtt
-          <input type="file" id="file-input" accept=".vtt,.txt" hidden>
-        </label>
-      </div>
-      <p class="hint">Importez une transcription Teams (.vtt) téléchargée depuis le chat de réunion.</p>
-      <div id="meetings-list" class="meetings-list"></div>
-    </section>
-
-    <section id="view-detail" class="view hidden">
-      <div class="detail-topbar">
-        <button id="back-btn" class="link-btn">← Retour</button>
-        <h2 id="detail-title" class="detail-topbar-title">Réunion</h2>
-        <div class="card-actions">
-          <button id="charts-toggle" class="btn btn-ghost hidden" type="button">📊 Graphiques</button>
-          <button id="export-pptx-btn" class="btn btn-secondary" type="button" hidden>PowerPoint</button>
-          <span id="detail-status" class="badge">ready</span>
-        </div>
-      </div>
-
-      <div class="detail-layout">
-        <div class="detail-main">
-          <div id="charts-panel" class="charts-panel hidden">
-            <div class="charts-grid">
-              <div class="chart-box"><canvas id="chart-distribution"></canvas></div>
-              <div class="chart-box"><canvas id="chart-actions"></canvas></div>
-              <div class="chart-box"><canvas id="chart-topics"></canvas></div>
-              <div class="chart-box"><canvas id="chart-radar"></canvas></div>
-              <div class="chart-box"><canvas id="chart-highlights"></canvas></div>
-              <div class="chart-box"><canvas id="chart-status"></canvas></div>
-            </div>
-          </div>
-
-          <div class="card summary-panel">
-            <div id="summary-content"></div>
-          </div>
-        </div>
-
-        <div class="card chat-panel">
-          <div class="chat-header">
-            <h3>Agent Groq</h3>
-          </div>
-          <div id="chat-messages" class="chat-messages"></div>
-          <div id="chat-suggestions" class="suggestions"></div>
-          <form id="chat-form" class="chat-form">
-            <input type="text" id="chat-input" placeholder="Posez votre question..." autocomplete="off">
-            <button type="submit" class="btn btn-primary">Envoyer</button>
-          </form>
-        </div>
-      </div>
-    </section>
-
-    <section id="view-settings" class="view hidden">
-      <h1>Paramètres</h1>
-      <div class="card settings-card">
-        <label class="field">
-          <span>Clé API Groq</span>
-          <input type="password" id="groq-key" placeholder="gsk_...">
-          <small>Gratuit sur <a href="https://console.groq.com" target="_blank">console.groq.com</a></small>
-        </label>
-        <label class="field">
-          <span>Modèle</span>
-          <input type="text" id="groq-model" value="openai/gpt-oss-20b">
-          <small>Recommandé : openai/gpt-oss-20b</small>
-        </label>
-        <button id="save-settings" class="btn btn-primary">Enregistrer</button>
-        <p id="settings-status" class="status-msg"></p>
-      </div>
-    </section>
-  </main>
-
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-  <script src="app.js"></script>
-</body>
-</html>
-
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="TeamsBrief — Résumés intelligents de réunions Teams">
+  <meta name="theme-color" content="#464775">
+  <title>TeamsBrief — Résumés Teams</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23464775' width='100' height='100' rx='20'/><text x='50' y='68' font-size='50' text-anchor='middle' fill='white'>T</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="toast-container" class="toast-container"></div>
+
+  <header class="header">
+    <div class="logo">TeamsBrief</div>
+    <nav>
+      <button class="nav-btn active" data-view="meetings">Réunions</button>
+      <button class="nav-btn" data-view="settings">Paramètres</button>
+      <button id="theme-toggle" class="nav-btn icon-btn" type="button" title="Mode sombre">🌙</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section id="view-meetings" class="view">
+      <div id="onboarding-banner" class="onboarding hidden">
+        <div>
+          <strong>Bienvenue !</strong> Configurez votre clé Groq gratuite pour commencer.
+        </div>
+        <button id="onboarding-go" class="btn btn-primary btn-sm" type="button">Configurer</button>
+      </div>
+
+      <div class="toolbar">
+        <div>
+          <h1>Mes réunions</h1>
+          <p id="meetings-stats" class="stats-line"></p>
+        </div>
+        <div class="toolbar-actions">
+          <label class="btn btn-primary">
+            + Importer
+            <input type="file" id="file-input" accept=".vtt,.txt" multiple hidden>
+          </label>
+          <button id="backup-export" class="btn btn-ghost btn-sm" type="button" title="Sauvegarder">💾</button>
+          <label class="btn btn-ghost btn-sm" title="Restaurer">
+            📂
+            <input type="file" id="backup-import" accept=".json" hidden>
+          </label>
+        </div>
+      </div>
+
+      <div id="dropzone" class="dropzone">
+        <span>Glissez vos fichiers .vtt ici</span>
+      </div>
+
+      <div class="search-bar">
+        <input type="search" id="search-input" placeholder="Rechercher une réunion… (Ctrl+K)">
+        <select id="filter-status">
+          <option value="all">Tous</option>
+          <option value="ready">Prêtes</option>
+          <option value="processing">En cours</option>
+          <option value="error">Erreurs</option>
+        </select>
+      </div>
+
+      <div id="meetings-list" class="meetings-list"></div>
+    </section>
+
+    <section id="view-detail" class="view hidden">
+      <div class="detail-topbar">
+        <button id="back-btn" class="link-btn">← Retour</button>
+        <h2 id="detail-title" class="detail-topbar-title">Réunion</h2>
+        <div class="card-actions">
+          <button id="charts-toggle" class="btn btn-ghost hidden" type="button">Graphiques</button>
+          <button id="copy-summary-btn" class="btn btn-ghost hidden" type="button">Copier</button>
+          <button id="export-md-btn" class="btn btn-ghost hidden" type="button">Markdown</button>
+          <button id="reprocess-btn" class="btn btn-ghost hidden" type="button">Réessayer</button>
+          <button id="delete-meeting-btn" class="btn btn-danger btn-sm hidden" type="button">Supprimer</button>
+          <button id="export-pptx-btn" class="btn btn-secondary hidden" type="button">PowerPoint</button>
+          <span id="detail-status" class="badge">ready</span>
+        </div>
+      </div>
+
+      <div class="detail-layout">
+        <div class="detail-main">
+          <div id="charts-panel" class="charts-panel hidden">
+            <div class="charts-grid">
+              <div class="chart-box"><canvas id="chart-distribution"></canvas></div>
+              <div class="chart-box"><canvas id="chart-actions"></canvas></div>
+              <div class="chart-box"><canvas id="chart-topics"></canvas></div>
+              <div class="chart-box"><canvas id="chart-radar"></canvas></div>
+              <div class="chart-box"><canvas id="chart-highlights"></canvas></div>
+              <div class="chart-box"><canvas id="chart-status"></canvas></div>
+            </div>
+          </div>
+
+          <div class="card summary-panel">
+            <div class="tabs">
+              <button class="tab active" data-tab="summary">Résumé</button>
+              <button class="tab" data-tab="transcript">Transcription</button>
+            </div>
+            <div id="tab-summary" class="tab-content">
+              <div id="summary-content"></div>
+            </div>
+            <div id="tab-transcript" class="tab-content hidden">
+              <input type="search" id="transcript-search" class="transcript-search" placeholder="Rechercher dans la transcription…">
+              <pre id="transcript-content" class="transcript-box"></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="card chat-panel">
+          <div class="chat-header">
+            <h3>Agent Groq</h3>
+            <button id="clear-chat-btn" class="btn-icon" type="button" title="Effacer la conversation">🗑️</button>
+          </div>
+          <div id="chat-messages" class="chat-messages">
+            <div class="chat-empty">Posez une question sur cette réunion</div>
+          </div>
+          <div id="chat-suggestions" class="suggestions"></div>
+          <form id="chat-form" class="chat-form">
+            <input type="text" id="chat-input" placeholder="Votre question…" autocomplete="off">
+            <button type="submit" class="btn btn-primary">→</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-settings" class="view hidden">
+      <h1>Paramètres</h1>
+      <div class="card settings-card">
+        <label class="field">
+          <span>Clé API Groq</span>
+          <div class="input-row">
+            <input type="password" id="groq-key" placeholder="gsk_...">
+            <button id="toggle-key" class="btn btn-ghost btn-sm" type="button">👁</button>
+          </div>
+          <small>Gratuit sur <a href="https://console.groq.com" target="_blank">console.groq.com</a></small>
+        </label>
+        <label class="field">
+          <span>Modèle</span>
+          <select id="groq-model">
+            <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (recommandé)</option>
+            <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (rapide)</option>
+            <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+          </select>
+        </label>
+        <button id="save-settings" class="btn btn-primary">Enregistrer</button>
+        <p id="settings-status" class="status-msg"></p>
+        <hr class="divider">
+        <h3 class="settings-sub">Données</h3>
+        <p class="hint">Vos réunions sont stockées localement dans ce navigateur.</p>
+        <div class="settings-actions">
+          <button id="settings-backup" class="btn btn-ghost" type="button">Exporter sauvegarde</button>
+          <label class="btn btn-ghost">
+            Importer sauvegarde
+            <input type="file" id="settings-restore" accept=".json" hidden>
+          </label>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
