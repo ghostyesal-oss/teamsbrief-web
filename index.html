@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TeamsBrief — Résumés Teams</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="logo">TeamsBrief</div>
+    <nav>
+      <button class="nav-btn active" data-view="meetings">Réunions</button>
+      <button class="nav-btn" data-view="settings">Paramètres</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <!-- Liste réunions -->
+    <section id="view-meetings" class="view">
+      <div class="toolbar">
+        <h1>Mes réunions</h1>
+        <label class="btn btn-primary">
+          + Importer .vtt
+          <input type="file" id="file-input" accept=".vtt,.txt" hidden>
+        </label>
+      </div>
+      <p class="hint">Importez une transcription Teams (.vtt) téléchargée depuis le chat de réunion.</p>
+      <div id="meetings-list" class="meetings-list"></div>
+    </section>
+
+    <!-- Détail réunion -->
+    <section id="view-detail" class="view hidden">
+      <button id="back-btn" class="link-btn">← Retour</button>
+      <div class="detail-grid">
+        <div class="card" id="summary-panel">
+          <div class="card-header">
+            <h2 id="detail-title">Réunion</h2>
+            <span id="detail-status" class="badge">ready</span>
+          </div>
+          <div id="summary-content"></div>
+        </div>
+        <div class="card chat-panel">
+          <h3>🤖 Agent Groq</h3>
+          <p class="hint">Posez vos questions sur cette réunion</p>
+          <div id="chat-messages" class="chat-messages"></div>
+          <div id="chat-suggestions" class="suggestions"></div>
+          <form id="chat-form" class="chat-form">
+            <input type="text" id="chat-input" placeholder="Posez votre question..." autocomplete="off">
+            <button type="submit" class="btn btn-primary">Envoyer</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- Paramètres -->
+    <section id="view-settings" class="view hidden">
+      <h1>Paramètres</h1>
+      <div class="card">
+        <label class="field">
+          <span>Clé API Groq</span>
+          <input type="password" id="groq-key" placeholder="gsk_...">
+          <small>Gratuit sur <a href="https://console.groq.com" target="_blank">console.groq.com</a></small>
+        </label>
+        <label class="field">
+          <span>Modèle</span>
+          <input type="text" id="groq-model" value="openai/gpt-oss-20b">
+          <small>Recommandé : openai/gpt-oss-20b</small>
+        </label>
+        <button id="save-settings" class="btn btn-primary">Enregistrer</button>
+        <p id="settings-status" class="status-msg"></p>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
