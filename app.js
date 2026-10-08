@@ -259,11 +259,19 @@ function openMeeting(id) {
 
   const panel = document.getElementById('summary-content');
   if (m.status === 'processing') {
+    destroyCharts();
+    document.getElementById('charts-panel').classList.add('hidden');
     panel.innerHTML = '<p class="hint">Génération du résumé en cours...</p>';
   } else if (m.status === 'error') {
+    destroyCharts();
+    document.getElementById('charts-panel').classList.add('hidden');
     panel.innerHTML = `<p style="color:#991b1b">${esc(m.error || 'Erreur')}</p>`;
   } else if (m.summary) {
     panel.innerHTML = renderSummary(m.summary);
+    renderCharts(m.summary);
+  } else {
+    destroyCharts();
+    document.getElementById('charts-panel').classList.add('hidden');
   }
 
   renderChat(m);
@@ -367,6 +375,178 @@ function esc(s) {
   return d.innerHTML;
 }
 
+// ─── Graphiques (Chart.js + données PPTX) ───
+const CHART_COLORS = ['#464775', '#6264A7', '#5B5FC7', '#059669', '#D97706', '#DC2626', '#2563EB', '#7C3AED'];
+let chartInstances = [];
+
+function destroyCharts() {
+  chartInstances.forEach(c => c.destroy());
+  chartInstances = [];
+}
+
+function buildChartMetrics(summary) {
+  const distLabels = [];
+  const distValues = [];
+  const distMap = [
+    ['Décisions', summary.decisions?.length || 0],
+    ['Actions', summary.actions?.length || 0],
+    ['Thèmes', summary.topics?.length || 0],
+    ['Questions', summary.open_questions?.length || 0],
+    ['Points clés', (summary.presentation?.highlights || summary.tldr || []).length],
+  ];
+  distMap.forEach(([l, v]) => { if (v > 0) { distLabels.push(l); distValues.push(v); } });
+
+  const actionCounts = {};
+  (summary.actions || []).forEach(a => {
+    const who = (a.who || 'Non assigné').slice(0, 25);
+    actionCounts[who] = (actionCounts[who] || 0) + 1;
+  });
+
+  const topics = summary.topics || [];
+  const topicLabels = topics.map(t => (t.title || 'Thème').slice(0, 22));
+  const topicValues = topics.map(t => (t.key_points?.length || 1));
+
+  const highlights = summary.presentation?.highlights || summary.tldr || [];
+  const hlLabels = highlights.map((h, i) => {
+    const t = typeof h === 'object' ? h.title : h;
+    return (t || `Point ${i + 1}`).slice(0, 28);
+  });
+  const hlValues = highlights.map((h, i) => {
+    const d = typeof h === 'object' ? (h.detail || '') : '';
+    return Math.max(1, Math.round((d.length || String(h).length) / 40));
+  });
+
+  const radarLabels = ['Décisions', 'Actions', 'Thèmes', 'Questions', 'Points clés'];
+  const radarValues = [
+    summary.decisions?.length || 0,
+    summary.actions?.length || 0,
+    summary.topics?.length || 0,
+    summary.open_questions?.length || 0,
+    highlights.length,
+  ];
+
+  const statusLabels = [];
+  const statusValues = [];
+  const withDeadline = (summary.actions || []).filter(a => a.when && a.when !== 'non précisé').length;
+  const withoutDeadline = (summary.actions || []).length - withDeadline;
+  if (withDeadline) { statusLabels.push('Avec échéance'); statusValues.push(withDeadline); }
+  if (withoutDeadline) { statusLabels.push('Sans échéance'); statusValues.push(withoutDeadline); }
+  if (summary.decisions?.length) { statusLabels.push('Décisions'); statusValues.push(summary.decisions.length); }
+
+  return {
+    distribution: { labels: distLabels, values: distValues },
+    actions: { labels: Object.keys(actionCounts), values: Object.values(actionCounts) },
+    topics: { labels: topicLabels, values: topicValues },
+    highlights: { labels: hlLabels, values: hlValues },
+    radar: { labels: radarLabels, values: radarValues },
+    status: { labels: statusLabels, values: statusValues },
+  };
+}
+
+function renderCharts(summary) {
+  destroyCharts();
+  const panel = document.getElementById('charts-panel');
+  if (!summary || typeof Chart === 'undefined') {
+    panel.classList.add('hidden');
+    return;
+  }
+
+  const m = buildChartMetrics(summary);
+  const hasData = m.distribution.values.length || m.actions.values.length || m.topics.values.length;
+  if (!hasData) {
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+
+  const base = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } },
+  };
+
+  if (m.distribution.values.length) {
+    chartInstances.push(new Chart(document.getElementById('chart-distribution'), {
+      type: 'doughnut',
+      data: {
+        labels: m.distribution.labels,
+        datasets: [{ data: m.distribution.values, backgroundColor: CHART_COLORS, borderWidth: 2, borderColor: '#fff' }],
+      },
+      options: { ...base, plugins: { ...base.plugins, title: { display: true, text: 'Répartition du compte-rendu', font: { size: 12 } } } },
+    }));
+  }
+
+  if (m.actions.values.length) {
+    chartInstances.push(new Chart(document.getElementById('chart-actions'), {
+      type: 'bar',
+      data: {
+        labels: m.actions.labels,
+        datasets: [{ label: 'Actions', data: m.actions.values, backgroundColor: '#5B5FC7', borderRadius: 6 }],
+      },
+      options: {
+        ...base,
+        plugins: { ...base.plugins, title: { display: true, text: 'Actions par responsable', font: { size: 12 } }, legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+      },
+    }));
+  }
+
+  if (m.topics.values.length) {
+    chartInstances.push(new Chart(document.getElementById('chart-topics'), {
+      type: 'bar',
+      data: {
+        labels: m.topics.labels,
+        datasets: [{ label: 'Points abordés', data: m.topics.values, backgroundColor: '#059669', borderRadius: 6 }],
+      },
+      options: {
+        ...base,
+        indexAxis: 'y',
+        plugins: { ...base.plugins, title: { display: true, text: 'Profondeur par thème', font: { size: 12 } }, legend: { display: false } },
+        scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } },
+      },
+    }));
+  }
+
+  if (m.radar.values.some(v => v > 0)) {
+    chartInstances.push(new Chart(document.getElementById('chart-radar'), {
+      type: 'radar',
+      data: {
+        labels: m.radar.labels,
+        datasets: [{
+          label: 'Intensité',
+          data: m.radar.values,
+          backgroundColor: 'rgba(91, 95, 199, 0.2)',
+          borderColor: '#5B5FC7',
+          pointBackgroundColor: '#464775',
+        }],
+      },
+      options: { ...base, plugins: { ...base.plugins, title: { display: true, text: 'Vue radar synthétique', font: { size: 12 } } }, scales: { r: { beginAtZero: true } } },
+    }));
+  }
+
+  if (m.highlights.values.length) {
+    chartInstances.push(new Chart(document.getElementById('chart-highlights'), {
+      type: 'polarArea',
+      data: {
+        labels: m.highlights.labels,
+        datasets: [{ data: m.highlights.values, backgroundColor: CHART_COLORS.map(c => c + 'CC') }],
+      },
+      options: { ...base, plugins: { ...base.plugins, title: { display: true, text: 'Poids des points clés', font: { size: 12 } } } },
+    }));
+  }
+
+  if (m.status.values.length) {
+    chartInstances.push(new Chart(document.getElementById('chart-status'), {
+      type: 'pie',
+      data: {
+        labels: m.status.labels,
+        datasets: [{ data: m.status.values, backgroundColor: ['#059669', '#D97706', '#464775'], borderWidth: 2, borderColor: '#fff' }],
+      },
+      options: { ...base, plugins: { ...base.plugins, title: { display: true, text: 'Suivi & décisions', font: { size: 12 } } } },
+    }));
+  }
+}
+
 // ─── Export PowerPoint (design premium + animations) ───
 const C = {
   blue: '464775', lightBlue: '6264A7', accent: '5B5FC7', white: 'FFFFFF',
@@ -462,6 +642,23 @@ function addActionsSlide(pptx, actions, slideNum) {
   addFooter(slide, slideNum);
 }
 
+function addChartSlide(pptx, heading, chartType, chartData, slideNum, opts = {}) {
+  const slide = pptx.addSlide({ background: { color: C.white } });
+  setTrans(slide, slideNum);
+  addHeader(pptx, slide, heading, '📊', C.blue);
+  slide.addChart(chartType, chartData, {
+    x: 0.6, y: 1.45, w: 8.8, h: 5.1,
+    showLegend: true,
+    legendPos: 'b',
+    legendFontSize: 9,
+    chartColors: CHART_COLORS.map(c => c.replace('#', '')),
+    showTitle: false,
+    barDir: opts.barDir || 'col',
+    ...opts,
+  });
+  addFooter(slide, slideNum);
+}
+
 function addTopicSlide(pptx, topic, slideNum) {
   const slide = pptx.addSlide({ background: { color: C.white } });
   setTrans(slide, slideNum);
@@ -523,18 +720,61 @@ function generatePresentation(title, summary, dateIso) {
     addFooter(agSlide, sn++);
   }
 
-  const stats = [[summary.decisions?.length || 0, 'Décisions', '✅'], [summary.actions?.length || 0, 'Actions', '📋'], [summary.topics?.length || 0, 'Thèmes', '💡']];
-  const stSlide = pptx.addSlide({ background: { color: C.lightGray } });
-  setTrans(stSlide, 2);
-  addHeader(pptx, stSlide, "Vue d'ensemble", '📊', C.blue);
-  stats.forEach(([val, lab, em], i) => {
-    const x = 1.2 + i * 2.8;
-    stSlide.addShape(pptx.ShapeType.roundRect, { x, y: 2.2, w: 2.2, h: 3.5, fill: { color: C.white }, line: { color: 'E5E7EB' }, rectRadius: 0.1 });
-    stSlide.addText(em, { x, y: 2.45, w: 2.2, h: 0.6, fontSize: 28, align: 'center' });
-    stSlide.addText(String(val), { x, y: 3.2, w: 2.2, h: 0.9, fontSize: 36, bold: true, color: C.accent, align: 'center' });
-    stSlide.addText(lab, { x, y: 4.2, w: 2.2, h: 0.8, fontSize: 12, color: C.gray, align: 'center' });
-  });
-  addFooter(stSlide, sn++);
+  const metrics = buildChartMetrics(summary);
+
+  // Slide graphiques — répartition (donut)
+  if (metrics.distribution.values.length) {
+    addChartSlide(pptx, 'Répartition du compte-rendu', pptx.ChartType.doughnut, [{
+      name: 'Contenu',
+      labels: metrics.distribution.labels,
+      values: metrics.distribution.values,
+    }], sn++, { showPercent: true });
+  }
+
+  // Actions par responsable (barres)
+  if (metrics.actions.values.length) {
+    addChartSlide(pptx, 'Actions par responsable', pptx.ChartType.bar, [{
+      name: 'Actions',
+      labels: metrics.actions.labels,
+      values: metrics.actions.values,
+    }], sn++, { barDir: 'col', showValue: true });
+  }
+
+  // Profondeur par thème (barres horizontales)
+  if (metrics.topics.values.length) {
+    addChartSlide(pptx, 'Profondeur par thème', pptx.ChartType.bar, [{
+      name: 'Points',
+      labels: metrics.topics.labels,
+      values: metrics.topics.values,
+    }], sn++, { barDir: 'bar', showValue: true });
+  }
+
+  // Points clés (barres)
+  if (metrics.highlights.values.length) {
+    addChartSlide(pptx, 'Poids des points clés', pptx.ChartType.bar, [{
+      name: 'Importance',
+      labels: metrics.highlights.labels.map((l, i) => `P${i + 1}`),
+      values: metrics.highlights.values,
+    }], sn++, { barDir: 'col', showValue: true });
+  }
+
+  // Suivi décisions / échéances (secteurs)
+  if (metrics.status.values.length) {
+    addChartSlide(pptx, 'Suivi & décisions', pptx.ChartType.pie, [{
+      name: 'Statut',
+      labels: metrics.status.labels,
+      values: metrics.status.values,
+    }], sn++, { showPercent: true });
+  }
+
+  // Vue d'ensemble comparative (barres groupées)
+  if (metrics.radar.values.some(v => v > 0)) {
+    addChartSlide(pptx, "Vue d'ensemble comparative", pptx.ChartType.bar, [{
+      name: 'Volume',
+      labels: metrics.radar.labels,
+      values: metrics.radar.values,
+    }], sn++, { barDir: 'col', showValue: true });
+  }
 
   if (pres.executive_summary) {
     const slide = pptx.addSlide({ background: { color: C.white } });
