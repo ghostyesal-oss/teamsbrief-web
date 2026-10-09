@@ -238,6 +238,7 @@ body {
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 .tab:hover:not(.active) { color: var(--text); }
 .tab-content.hidden { display: none; }
+.tab[disabled], .tab[hidden] { display: none; }
 
 .transcript-search {
   width: 100%; padding: 0.55rem 0.85rem; margin-bottom: 0.75rem;

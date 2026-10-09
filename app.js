@@ -126,8 +126,33 @@ function showView(name) {
 }
 
 // ─── Storage ───
+function coerceSummary(summary) {
+  if (!summary) return null;
+  if (typeof summary === 'string') {
+    try {
+      const t = summary.trim();
+      if (t.startsWith('{')) return JSON.parse(t);
+      return { tldr: [summary] };
+    } catch {
+      try { return parseGroqJson(summary); } catch { return { tldr: [summary] }; }
+    }
+  }
+  return typeof summary === 'object' ? summary : null;
+}
+
+function findMeeting(id) {
+  if (id == null) return null;
+  const sid = String(id);
+  return meetings.find(m => String(m.id) === sid) || null;
+}
+
 function loadMeetings() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]').map(m => {
+      m.summary = coerceSummary(m.summary);
+      return m;
+    });
+  }
   catch { return []; }
 }
 
@@ -192,7 +217,12 @@ function updateOnboarding() {
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.getElementById('tab-summary').classList.toggle('hidden', name !== 'summary');
+  document.getElementById('tab-report').classList.toggle('hidden', name !== 'report');
   document.getElementById('tab-transcript').classList.toggle('hidden', name !== 'transcript');
+  if (name === 'report') {
+    const m = findMeeting(currentMeetingId);
+    if (m) renderReportTab(m);
+  }
 }
 
 function exportBackup() {
@@ -383,7 +413,7 @@ async function importOneFile(file) {
       { role: 'system', content: 'Tu réponds uniquement en JSON valide, en français.' },
       { role: 'user', content: SUMMARY_PROMPT(title, transcript) },
     ], true);
-    meeting.summary = parseGroqJson(raw);
+    meeting.summary = coerceSummary(parseGroqJson(raw));
     meeting.status = 'ready';
     toast(`"${title}" prête`);
   } catch (err) {
@@ -408,7 +438,7 @@ async function reprocessMeeting() {
       { role: 'system', content: 'Tu réponds uniquement en JSON valide, en français.' },
       { role: 'user', content: SUMMARY_PROMPT(m.title, m.transcript) },
     ], true);
-    m.summary = parseGroqJson(raw);
+    m.summary = coerceSummary(parseGroqJson(raw));
     m.status = 'ready';
     toast('Résumé régénéré');
   } catch (err) {
@@ -486,17 +516,23 @@ function renderMeetingsList() {
 // ─── Détail ───
 function openMeeting(id) {
   currentMeetingId = id;
-  const m = meetings.find(x => x.id === id);
+  const m = findMeeting(id);
   if (!m) return;
+  m.summary = coerceSummary(m.summary);
 
   document.getElementById('detail-title').textContent = m.title;
   document.getElementById('detail-status').textContent = statusLabel(m.status);
   document.getElementById('detail-status').className = `badge ${m.status}`;
 
   const ready = m.status === 'ready' && m.summary;
-  ['export-pptx-btn', 'copy-summary-btn', 'export-md-btn', 'read-report-btn'].forEach(id => {
-    document.getElementById(id).hidden = !ready;
+  ['export-pptx-btn', 'copy-summary-btn', 'export-md-btn', 'read-report-btn'].forEach(btnId => {
+    document.getElementById(btnId).hidden = !ready;
   });
+  const reportTabBtn = document.getElementById('tab-report-btn');
+  if (reportTabBtn) {
+    reportTabBtn.hidden = !ready;
+    reportTabBtn.disabled = !ready;
+  }
   document.getElementById('reprocess-btn').hidden = m.status !== 'error';
   document.getElementById('delete-meeting-btn').hidden = false;
   document.getElementById('export-pptx-btn').disabled = false;
@@ -521,9 +557,10 @@ function openMeeting(id) {
     destroyCharts();
     panel.innerHTML = `<div class="error-box">${esc(m.error || 'Erreur')}</div>`;
   } else if (m.summary) {
-    const html = renderSummary(m, m);
+    const html = renderSummary(m.summary, m);
     panel.innerHTML = html || '<div class="empty-report">Résumé vide. Cliquez sur <strong>Réessayer</strong> pour régénérer.</div>';
-    renderCharts(m.summary);
+    renderReportTab(m);
+    try { renderCharts(m.summary); } catch { /* graphiques optionnels */ }
     bindActionCheckboxes(m);
   } else {
     destroyCharts();
@@ -538,8 +575,9 @@ function openMeeting(id) {
 }
 
 function renderSummary(s, meeting) {
+  const summary = coerceSummary(s) || {};
   let html = '';
-  const pres = s.presentation || {};
+  const pres = summary.presentation || {};
 
   if (pres.executive_summary) {
     html += `<div class="exec-summary">${esc(pres.executive_summary)}</div>`;
@@ -548,30 +586,45 @@ function renderSummary(s, meeting) {
     html += `<div class="summary-section"><h4>Points clés</h4>${pres.highlights.map(h => `
       <div class="highlight-card"><strong>${esc(h.title || h)}</strong>${h.detail ? `<span>${esc(h.detail)}</span>` : ''}</div>
     `).join('')}</div>`;
-  } else if (s.tldr?.length) {
-    html += `<div class="summary-section"><h4>En bref</h4><ul>${s.tldr.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
+  } else if (summary.tldr?.length) {
+    html += `<div class="summary-section"><h4>En bref</h4><ul>${summary.tldr.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
   }
-  if (s.decisions?.length) {
-    html += `<div class="summary-section"><h4>Décisions</h4><ul>${s.decisions.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
+  if (summary.decisions?.length) {
+    html += `<div class="summary-section"><h4>Décisions</h4><ul>${summary.decisions.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
   }
-  if (s.actions?.length) {
-    html += `<div class="summary-section"><h4>Actions</h4>${s.actions.map((a, i) => {
+  if (summary.actions?.length) {
+    html += `<div class="summary-section"><h4>Actions</h4>${summary.actions.map((a, i) => {
       const done = meeting?.doneActions?.includes(i);
       return `<div class="action-item${done ? ' done' : ''}"><input type="checkbox" data-action="${i}" ${done ? 'checked' : ''}><span><strong>${esc(a.who)}</strong> — ${esc(a.what)}${a.when && a.when !== 'non précisé' ? `<span class="action-deadline">${esc(a.when)}</span>` : ''}</span></div>`;
     }).join('')}</div>`;
   }
-  if (s.topics?.length) {
-    html += `<div class="summary-section"><h4>Thèmes</h4>${s.topics.map(t => `
+  if (summary.topics?.length) {
+    html += `<div class="summary-section"><h4>Thèmes</h4>${summary.topics.map(t => `
       <div class="topic-card"><h5>${esc(t.title)}</h5>${t.summary ? `<p>${esc(t.summary)}</p>` : ''}${t.key_points?.length ? `<ul>${t.key_points.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}</div>
     `).join('')}</div>`;
   }
-  if (s.explanation_for_absent) {
-    html += `<div class="summary-section"><h4>Pour les absents</h4><p class="explanation">${esc(s.explanation_for_absent)}</p></div>`;
+  if (summary.explanation_for_absent) {
+    html += `<div class="summary-section"><h4>Pour les absents</h4><p class="explanation">${esc(summary.explanation_for_absent)}</p></div>`;
   }
-  if (s.open_questions?.length) {
-    html += `<div class="summary-section"><h4>Questions en suspens</h4><ul>${s.open_questions.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
+  if (summary.open_questions?.length) {
+    html += `<div class="summary-section"><h4>Questions en suspens</h4><ul>${summary.open_questions.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
   }
   return html;
+}
+
+function renderReportTab(m) {
+  const el = document.getElementById('report-tab-content');
+  if (!el) return;
+  if (!m?.summary) {
+    el.innerHTML = '<div class="empty-report">Aucun rapport disponible. Importez une réunion ou cliquez sur <strong>Réessayer</strong>.</div>';
+    return;
+  }
+  const { title, dateStr, body } = buildReportContent(m);
+  el.innerHTML = `
+    <h2 style="font-size:1.2rem;color:var(--brand);margin-bottom:.25rem">${esc(title)}</h2>
+    <p class="report-meta">Compte-rendu · ${esc(dateStr)}</p>
+    ${body}
+  `;
 }
 
 function bindActionCheckboxes(meeting) {
@@ -728,11 +781,14 @@ function downloadCurrentReport() {
 }
 
 function openReadableReport() {
-  const m = meetings.find(x => x.id === currentMeetingId);
-  if (!m?.summary) return;
-
-  // GitHub Pages bloque souvent les pop-ups : affichage en plein écran dans l'app
-  showReportOverlay(m);
+  const m = findMeeting(currentMeetingId);
+  if (!m?.summary) {
+    toast('Aucun rapport — générez d\'abord le résumé (Réessayer)', 'error');
+    return;
+  }
+  switchTab('report');
+  renderReportTab(m);
+  toast('Rapport affiché — onglet « Rapport »');
 }
 
 function clearChat() {
