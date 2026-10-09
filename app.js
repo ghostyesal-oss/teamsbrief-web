@@ -135,18 +135,39 @@ function showView(name) {
 }
 
 // ─── Storage ───
+function normalizeGroqSummary(raw) {
+  if (!raw || typeof raw !== 'object') return raw;
+  let o = Array.isArray(raw) ? { tldr: raw.map(String) } : { ...raw };
+  for (const key of ['data', 'result', 'report', 'rapport', 'summary', 'résumé', 'resume', 'réunion', 'reunion']) {
+    const nest = o[key];
+    if (nest && typeof nest === 'object' && !Array.isArray(nest)) o = { ...o, ...nest };
+  }
+  if (o.décisions && !o.decisions) o.decisions = o.décisions;
+  if (o.actions_a_faire && !o.actions) o.actions = o.actions_a_faire;
+  if (o.points_cles && !o.tldr) o.tldr = o.points_cles;
+  if (o.questions_ouvertes && !o.open_questions) o.open_questions = o.questions_ouvertes;
+  if (typeof o.presentation === 'string') o.presentation = { executive_summary: o.presentation };
+  if (typeof o.synthese === 'string' && !o.presentation?.executive_summary) {
+    o.presentation = { ...(o.presentation || {}), executive_summary: o.synthese };
+  }
+  if (Array.isArray(o.actions)) {
+    o.actions = o.actions.map(a => (typeof a === 'string' ? { who: '—', what: a, when: '' } : a));
+  }
+  return o;
+}
+
 function coerceSummary(summary) {
   if (!summary) return null;
   if (typeof summary === 'string') {
     try {
       const t = summary.trim();
-      if (t.startsWith('{')) return JSON.parse(t);
-      return { tldr: [summary] };
+      if (t.startsWith('{')) return normalizeGroqSummary(JSON.parse(t));
+      return normalizeGroqSummary({ tldr: [summary] });
     } catch {
-      try { return parseGroqJson(summary); } catch { return { tldr: [summary] }; }
+      try { return normalizeGroqSummary(parseGroqJson(summary)); } catch { return normalizeGroqSummary({ tldr: [summary] }); }
     }
   }
-  return typeof summary === 'object' ? summary : null;
+  return typeof summary === 'object' ? normalizeGroqSummary(summary) : null;
 }
 
 function findMeeting(id) {
@@ -235,7 +256,7 @@ function switchTab(name) {
   if (name === 'report' && m) renderReportTab(m);
 }
 
-function hasReadableReport(m) {
+function hasAiSummary(m) {
   const s = coerceSummary(m?.summary);
   if (!s) return false;
   const structured = !!(
@@ -250,6 +271,13 @@ function hasReadableReport(m) {
   );
   if (structured) return true;
   return !!(renderSummary(s, m) || '').trim();
+}
+
+/** Rapport affichable (synthèse IA ou, à défaut, transcription de l’appel). */
+function hasReadableReport(m) {
+  if (!m || m.status !== 'ready') return false;
+  if (hasAiSummary(m)) return true;
+  return (m.transcript || '').trim().length > 80;
 }
 
 function updateReportQuickBar(m) {
@@ -546,10 +574,63 @@ function destroyGlobalCharts() {
   globalChartInstances = [];
 }
 
+function renderReportsHub() {
+  const el = document.getElementById('reports-hub');
+  if (!el) return;
+  const reports = meetings.filter(m => hasReadableReport(m));
+  const failed = meetings.filter(m => m.status === 'error');
+  const pending = meetings.filter(m => m.status === 'processing');
+
+  if (!meetings.length) {
+    el.classList.add('hidden');
+    return;
+  }
+  el.classList.remove('hidden');
+
+  let inner = `
+    <div class="dashboard-section-head">
+      <h2>Rapports d'appel</h2>
+      <p>Comptes-rendus de vos réunions Teams importées (.vtt)</p>
+    </div>`;
+
+  if (reports.length) {
+    inner += `<ul class="reports-hub-list">${reports.slice(0, 12).map(m => `
+      <li class="reports-hub-item">
+        <div>
+          <strong>${esc(m.title)}</strong>
+          <span class="reports-hub-date">${new Date(m.date).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+          ${hasAiSummary(m) ? '<span class="mini-chip chip-green">Synthèse IA</span>' : '<span class="mini-chip chip-orange">Transcription</span>'}
+        </div>
+        <button type="button" class="btn btn-primary btn-sm reports-hub-open" data-id="${esc(m.id)}">Ouvrir</button>
+      </li>
+    `).join('')}</ul>`;
+    if (reports.length > 12) inner += `<p class="reports-hub-more">+ ${reports.length - 12} autre(s) rapport(s) dans la liste ci-dessous.</p>`;
+  } else {
+    inner += `<div class="reports-hub-empty">
+      <p><strong>Aucun rapport lisible pour l’instant.</strong></p>
+      ${failed.length ? `<p>${failed.length} réunion(s) en erreur — ouvrez-les et cliquez <strong>Réessayer</strong> (clé Groq + modèle <code>openai/gpt-oss-20b</code>).</p>` : ''}
+      ${pending.length ? `<p>${pending.length} génération(s) en cours…</p>` : ''}
+      ${!failed.length && !pending.length ? '<p>Importez un fichier .vtt ou restaurez une sauvegarde JSON (💾 / 📂).</p>' : ''}
+      <p class="reports-hub-origin">Les données sont enregistrées <strong>dans ce navigateur</strong> pour cette adresse web (GitHub ≠ Vercel = listes différentes).</p>
+    </div>`;
+  }
+
+  el.innerHTML = inner;
+  el.querySelectorAll('.reports-hub-open').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      openMeeting(findMeeting(id)?.id ?? id);
+      switchTab('report');
+    });
+  });
+}
+
 function renderDashboard() {
   const kpiEl = document.getElementById('dashboard-kpis');
   const chartsWrap = document.getElementById('dashboard-charts-wrap');
   if (!kpiEl) return;
+
+  renderReportsHub();
 
   const g = computeGlobalStats();
   const subtitle = document.getElementById('meetings-stats');
@@ -744,7 +825,8 @@ function renderMeetingsList() {
         ${meetingMiniStats(m)}
       </div>
       <div class="meeting-meta">
-        ${m.status === 'ready' && hasReadableReport(m) ? '<button type="button" class="meeting-report-btn" data-report="' + m.id + '">Rapport</button>' : ''}
+        ${hasReadableReport(m) ? '<button type="button" class="meeting-report-btn" data-report="' + m.id + '">Rapport</button>' : ''}
+        ${m.status === 'error' ? '<button type="button" class="meeting-report-btn meeting-report-retry" data-retry="' + m.id + '">Réessayer</button>' : ''}
         <span class="badge ${m.status}">${statusLabel(m.status)}</span>
         <button class="meeting-delete" data-del="${m.id}" title="Supprimer">✕</button>
       </div>
@@ -753,18 +835,28 @@ function renderMeetingsList() {
 
   el.querySelectorAll('.meeting-item').forEach(item => {
     item.addEventListener('click', e => {
-      if (e.target.closest('.meeting-delete') || e.target.closest('.meeting-report-btn')) return;
+      if (e.target.closest('.meeting-delete') || e.target.closest('.meeting-report-btn') || e.target.closest('.meeting-report-retry')) return;
       const id = item.dataset.id;
       openMeeting(meetings.find(m => String(m.id) === id)?.id ?? id);
     });
   });
-  el.querySelectorAll('.meeting-report-btn').forEach(btn => {
+  el.querySelectorAll('.meeting-report-btn[data-report]').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
       const id = btn.dataset.report;
       openMeeting(meetings.find(m => String(m.id) === id)?.id ?? id);
       switchTab('report');
       renderReportTab(findMeeting(id));
+    });
+  });
+  el.querySelectorAll('.meeting-report-retry').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = btn.dataset.retry;
+      currentMeetingId = findMeeting(id)?.id ?? id;
+      openMeeting(currentMeetingId);
+      if (!settings.apiKey) { showView('settings'); toast('Ajoutez votre clé Groq', 'error'); }
+      else reprocessMeeting();
     });
   });
   el.querySelectorAll('.meeting-delete').forEach(btn => {
@@ -783,12 +875,17 @@ function openMeeting(id) {
   document.getElementById('detail-status').textContent = statusLabel(m.status);
   document.getElementById('detail-status').className = `badge ${m.status}`;
 
-  const ready = m.status === 'ready' && hasReadableReport(m);
-  ['export-pptx-btn', 'copy-summary-btn', 'export-md-btn', 'read-report-btn'].forEach(btnId => {
-    document.getElementById(btnId).hidden = !ready;
+  const readyReport = m.status === 'ready' && hasReadableReport(m);
+  const readyAi = m.status === 'ready' && hasAiSummary(m);
+  ['read-report-btn'].forEach(btnId => { document.getElementById(btnId).hidden = !readyReport; });
+  ['export-pptx-btn', 'copy-summary-btn', 'export-md-btn'].forEach(btnId => {
+    document.getElementById(btnId).hidden = !readyAi;
   });
   updateReportQuickBar(m);
-  document.getElementById('reprocess-btn').hidden = m.status !== 'error';
+  document.getElementById('reprocess-btn').hidden = !(m.status === 'error' || (m.transcript && !hasAiSummary(m)));
+  if (!document.getElementById('reprocess-btn').hidden) {
+    document.getElementById('reprocess-btn').textContent = m.status === 'error' ? 'Réessayer' : 'Générer le rapport IA';
+  }
   document.getElementById('delete-meeting-btn').hidden = false;
   document.getElementById('export-pptx-btn').disabled = false;
   document.getElementById('export-pptx-btn').textContent = 'PowerPoint';
@@ -835,6 +932,7 @@ function openMeeting(id) {
     panel.innerHTML = '<div class="empty-report">Aucun résumé disponible. Cliquez sur <strong>Réessayer</strong>.</div>';
   }
 
+  renderReportTab(m);
   renderChat(m);
   renderSuggestions();
   showView('detail');
@@ -1011,6 +1109,15 @@ function buildReportContent(m) {
   }
   if (s.open_questions?.length) {
     body += section('Questions en suspens', `<ul>${s.open_questions.map(q => `<li>${esc(q)}</li>`).join('')}</ul>`);
+  }
+  if (!body.trim() && (m.transcript || '').trim().length > 80) {
+    const full = m.transcript.trim();
+    const excerpt = full.slice(0, 14000);
+    body += section(
+      'Transcription de l’appel',
+      `<pre class="report-transcript">${esc(excerpt)}${full.length > excerpt.length ? '\n\n[… transcription tronquée dans l’aperçu — voir l’onglet Transcription]' : ''}</pre>`
+    );
+    body += `<p class="report-hint">Pour un <strong>compte-rendu structuré</strong> (décisions, actions), vérifiez votre clé Groq dans Paramètres puis cliquez <strong>Réessayer</strong>.</p>`;
   }
 
   return {
