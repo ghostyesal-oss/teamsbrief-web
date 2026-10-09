@@ -5,6 +5,8 @@ const SETTINGS_KEY = 'teamsbrief_settings';
 const THEME_KEY = 'teamsbrief_theme';
 
 const STATUS_LABELS = { ready: 'Prêt', processing: 'En cours', error: 'Erreur' };
+const GROQ_FALLBACK_MODEL = 'openai/gpt-oss-20b';
+let chartInstances = [];
 
 const SUGGESTIONS = [
   "Qu'est-ce qui a été décidé ?",
@@ -271,8 +273,6 @@ function parseVtt(text) {
 }
 
 // ─── Groq API (via proxy hébergé ou direct) ───
-const GROQ_FALLBACK_MODEL = 'openai/gpt-oss-20b';
-
 function parseGroqJson(raw) {
   const text = String(raw || '').trim();
   try { return JSON.parse(text); } catch { /* continue */ }
@@ -882,7 +882,6 @@ function esc(s) {
 
 // ─── Graphiques (Chart.js + données PPTX) ───
 const CHART_COLORS = ['#464775', '#6264A7', '#5B5FC7', '#059669', '#D97706', '#DC2626', '#2563EB', '#7C3AED'];
-let chartInstances = [];
 
 function destroyCharts() {
   chartInstances.forEach(c => c.destroy());
