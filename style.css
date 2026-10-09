@@ -337,6 +337,32 @@ body {
 .report-body ul, .report-body ol { padding-left: 1.25rem; }
 .report-body li { margin-bottom: 0.35rem; }
 
+.report-quick-bar {
+  display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;
+  margin-bottom: 0.75rem; padding: 0.75rem 1rem;
+  background: linear-gradient(90deg, rgba(91, 95, 199, 0.12), rgba(5, 150, 105, 0.08));
+  border: 1px solid rgba(91, 95, 199, 0.25); border-radius: 0.75rem;
+}
+.report-quick-bar.hidden { display: none; }
+.report-quick-label { font-size: 0.88rem; font-weight: 600; color: var(--brand); flex: 1; }
+[data-theme="dark"] .report-quick-label { color: #c7d2fe; }
+
+.report-tab-toolbar {
+  display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem;
+  padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);
+}
+.report-readable { min-height: 200px; }
+.report-article-head h2 { font-size: 1.35rem; color: var(--brand); margin-bottom: 0.35rem; }
+[data-theme="dark"] .report-article-head h2 { color: #c7d2fe; }
+.report-article { max-width: 100%; }
+
+.meeting-report-btn {
+  font-size: 0.72rem; font-weight: 600; padding: 0.3rem 0.65rem;
+  border-radius: 999px; border: 1px solid var(--accent); background: var(--hover);
+  color: var(--accent); cursor: pointer;
+}
+.meeting-report-btn:hover { background: var(--accent); color: #fff; }
+
 .charts-panel {
   padding: 1.25rem 1.5rem; background: var(--card); border: 1px solid var(--border);
   border-radius: 0.875rem; box-shadow: var(--shadow);

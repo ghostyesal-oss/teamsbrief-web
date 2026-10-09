@@ -69,6 +69,10 @@ document.getElementById('reprocess-btn').addEventListener('click', reprocessMeet
 document.getElementById('copy-summary-btn').addEventListener('click', copySummary);
 document.getElementById('export-md-btn').addEventListener('click', exportMarkdown);
 document.getElementById('read-report-btn').addEventListener('click', openReadableReport);
+document.getElementById('download-report-inline')?.addEventListener('click', downloadReportForCurrent);
+document.getElementById('open-report-overlay')?.addEventListener('click', openReportOverlayForCurrent);
+document.getElementById('goto-report-btn')?.addEventListener('click', openReadableReport);
+document.getElementById('download-report-quick')?.addEventListener('click', downloadReportForCurrent);
 document.getElementById('report-close-btn').addEventListener('click', closeReportOverlay);
 document.getElementById('report-download-btn').addEventListener('click', downloadCurrentReport);
 document.getElementById('report-print-btn').addEventListener('click', () => window.print());
@@ -227,10 +231,30 @@ function switchTab(name) {
   document.getElementById('tab-summary').classList.toggle('hidden', name !== 'summary');
   document.getElementById('tab-report').classList.toggle('hidden', name !== 'report');
   document.getElementById('tab-transcript').classList.toggle('hidden', name !== 'transcript');
-  if (name === 'report') {
-    const m = findMeeting(currentMeetingId);
-    if (m) renderReportTab(m);
-  }
+  const m = findMeeting(currentMeetingId);
+  if (name === 'report' && m) renderReportTab(m);
+}
+
+function hasReadableReport(m) {
+  const s = coerceSummary(m?.summary);
+  if (!s) return false;
+  return !!(
+    s.presentation?.executive_summary
+    || s.presentation?.highlights?.length
+    || s.tldr?.length
+    || s.decisions?.length
+    || s.actions?.length
+    || s.topics?.length
+    || s.explanation_for_absent
+    || s.open_questions?.length
+  );
+}
+
+function updateReportQuickBar(m) {
+  const bar = document.getElementById('report-quick-bar');
+  if (!bar) return;
+  const show = m && m.status === 'ready' && hasReadableReport(m);
+  bar.classList.toggle('hidden', !show);
 }
 
 function exportBackup() {
@@ -718,6 +742,7 @@ function renderMeetingsList() {
         ${meetingMiniStats(m)}
       </div>
       <div class="meeting-meta">
+        ${m.status === 'ready' && hasReadableReport(m) ? '<button type="button" class="meeting-report-btn" data-report="' + m.id + '">Rapport</button>' : ''}
         <span class="badge ${m.status}">${statusLabel(m.status)}</span>
         <button class="meeting-delete" data-del="${m.id}" title="Supprimer">✕</button>
       </div>
@@ -726,9 +751,18 @@ function renderMeetingsList() {
 
   el.querySelectorAll('.meeting-item').forEach(item => {
     item.addEventListener('click', e => {
-      if (e.target.closest('.meeting-delete')) return;
+      if (e.target.closest('.meeting-delete') || e.target.closest('.meeting-report-btn')) return;
       const id = item.dataset.id;
       openMeeting(meetings.find(m => String(m.id) === id)?.id ?? id);
+    });
+  });
+  el.querySelectorAll('.meeting-report-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = btn.dataset.report;
+      openMeeting(meetings.find(m => String(m.id) === id)?.id ?? id);
+      switchTab('report');
+      renderReportTab(findMeeting(id));
     });
   });
   el.querySelectorAll('.meeting-delete').forEach(btn => {
@@ -747,15 +781,11 @@ function openMeeting(id) {
   document.getElementById('detail-status').textContent = statusLabel(m.status);
   document.getElementById('detail-status').className = `badge ${m.status}`;
 
-  const ready = m.status === 'ready' && m.summary;
+  const ready = m.status === 'ready' && hasReadableReport(m);
   ['export-pptx-btn', 'copy-summary-btn', 'export-md-btn', 'read-report-btn'].forEach(btnId => {
     document.getElementById(btnId).hidden = !ready;
   });
-  const reportTabBtn = document.getElementById('tab-report-btn');
-  if (reportTabBtn) {
-    reportTabBtn.hidden = !ready;
-    reportTabBtn.disabled = !ready;
-  }
+  updateReportQuickBar(m);
   document.getElementById('reprocess-btn').hidden = m.status !== 'error';
   document.getElementById('delete-meeting-btn').hidden = false;
   document.getElementById('export-pptx-btn').disabled = false;
@@ -769,7 +799,8 @@ function openMeeting(id) {
   chartsToggle.textContent = 'Graphiques';
   renderDetailKpis(m);
 
-  switchTab('summary');
+  const defaultTab = (m.status === 'ready' && hasReadableReport(m)) ? 'report' : 'summary';
+  switchTab(defaultTab);
   document.getElementById('transcript-content').textContent = m.transcript || '(vide)';
   document.getElementById('transcript-search').value = '';
 
@@ -850,15 +881,35 @@ function renderSummary(s, meeting) {
 function renderReportTab(m) {
   const el = document.getElementById('report-tab-content');
   if (!el) return;
-  if (!m?.summary) {
-    el.innerHTML = '<div class="empty-report">Aucun rapport disponible. Importez une réunion ou cliquez sur <strong>Réessayer</strong>.</div>';
+
+  if (m?.status === 'processing') {
+    el.innerHTML = '<div class="loading-box"><div class="spinner"></div>Génération du rapport en cours…</div>';
     return;
   }
+  if (m?.status === 'error') {
+    el.innerHTML = `<div class="error-box">${esc(m.error || 'Erreur lors de la génération.')}</div>
+      <p class="empty-report">Cliquez sur <strong>Réessayer</strong> en haut à droite.</p>`;
+    return;
+  }
+
+  m.summary = coerceSummary(m.summary);
+  if (!hasReadableReport(m)) {
+    el.innerHTML = `<div class="empty-report">
+      <p>Aucun rapport pour l’instant.</p>
+      <p>Importez un fichier <strong>.vtt</strong> ou cliquez sur <strong>Réessayer</strong> après avoir configuré votre clé Groq.</p>
+    </div>`;
+    return;
+  }
+
   const { title, dateStr, body } = buildReportContent(m);
   el.innerHTML = `
-    <h2 style="font-size:1.2rem;color:var(--brand);margin-bottom:.25rem">${esc(title)}</h2>
-    <p class="report-meta">Compte-rendu · ${esc(dateStr)}</p>
-    ${body}
+    <article class="report-article">
+      <header class="report-article-head">
+        <h2>${esc(title)}</h2>
+        <p class="report-meta">Compte-rendu · ${esc(dateStr)} · TeamsBrief</p>
+      </header>
+      ${body}
+    </article>
   `;
 }
 
@@ -921,7 +972,7 @@ function exportMarkdown() {
 let reportMeetingCache = null;
 
 function buildReportContent(m) {
-  const s = m.summary || {};
+  const s = coerceSummary(m.summary) || {};
   const pres = s.presentation || {};
   const dateStr = new Date(m.date).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' });
   const section = (title, body) => body
@@ -1004,9 +1055,28 @@ function closeReportOverlay() {
   document.body.style.overflow = '';
 }
 
+function downloadReportForCurrent() {
+  const m = findMeeting(currentMeetingId);
+  if (!m || !hasReadableReport(m)) {
+    toast('Aucun rapport à télécharger', 'error');
+    return;
+  }
+  reportMeetingCache = m;
+  downloadCurrentReport();
+}
+
+function openReportOverlayForCurrent() {
+  const m = findMeeting(currentMeetingId);
+  if (!m || !hasReadableReport(m)) {
+    toast('Aucun rapport à afficher', 'error');
+    return;
+  }
+  showReportOverlay(m);
+}
+
 function downloadCurrentReport() {
-  const m = reportMeetingCache || meetings.find(x => x.id === currentMeetingId);
-  if (!m?.summary) return;
+  const m = reportMeetingCache || findMeeting(currentMeetingId);
+  if (!m || !hasReadableReport(m)) return;
   const blob = new Blob([buildReportHtml(m)], { type: 'text/html;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1018,13 +1088,12 @@ function downloadCurrentReport() {
 
 function openReadableReport() {
   const m = findMeeting(currentMeetingId);
-  if (!m?.summary) {
-    toast('Aucun rapport — générez d\'abord le résumé (Réessayer)', 'error');
-    return;
-  }
+  if (!m) return;
   switchTab('report');
   renderReportTab(m);
-  toast('Rapport affiché — onglet « Rapport »');
+  document.getElementById('report-tab-content')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (hasReadableReport(m)) toast('Rapport affiché');
+  else toast('Configurez Groq puis Réessayer pour générer le rapport', 'error');
 }
 
 function clearChat() {

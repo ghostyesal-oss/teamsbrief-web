@@ -114,6 +114,12 @@
     </section>
 
     <section id="view-detail" class="view hidden">
+      <div id="report-quick-bar" class="report-quick-bar hidden">
+        <span class="report-quick-label">Rapport disponible</span>
+        <button id="goto-report-btn" class="btn btn-primary btn-sm" type="button">Ouvrir le rapport</button>
+        <button id="download-report-quick" class="btn btn-ghost btn-sm" type="button">Télécharger</button>
+      </div>
+
       <div class="detail-topbar">
         <button id="back-btn" class="link-btn">← Retour</button>
         <h2 id="detail-title" class="detail-topbar-title">Réunion</h2>
@@ -150,15 +156,19 @@
 
           <div class="card summary-panel">
             <div class="tabs">
-              <button class="tab active" data-tab="summary">Résumé</button>
-              <button class="tab" data-tab="report" id="tab-report-btn">Rapport</button>
+              <button class="tab active" data-tab="report" id="tab-report-btn">Rapport</button>
+              <button class="tab" data-tab="summary">Résumé</button>
               <button class="tab" data-tab="transcript">Transcription</button>
             </div>
-            <div id="tab-summary" class="tab-content">
-              <div id="summary-content"></div>
+            <div id="tab-report" class="tab-content">
+              <div class="report-tab-toolbar">
+                <button id="download-report-inline" class="btn btn-ghost btn-sm" type="button">Télécharger le rapport (.html)</button>
+                <button id="open-report-overlay" class="btn btn-primary btn-sm" type="button">Plein écran</button>
+              </div>
+              <div id="report-tab-content" class="report-body report-readable"></div>
             </div>
-            <div id="tab-report" class="tab-content hidden">
-              <div id="report-tab-content" class="report-body"></div>
+            <div id="tab-summary" class="tab-content hidden">
+              <div id="summary-content"></div>
             </div>
             <div id="tab-transcript" class="tab-content hidden">
               <input type="search" id="transcript-search" class="transcript-search" placeholder="Rechercher dans la transcription…">
@@ -221,6 +231,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>
