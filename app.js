@@ -488,6 +488,7 @@ function computeGlobalStats() {
     decisions: 0,
     actions: 0,
     questions: 0,
+    topicsCount: 0,
     actionOwners: {},
     byMonth: {},
   };
@@ -509,6 +510,7 @@ function computeGlobalStats() {
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       stats.byMonth[key] = (stats.byMonth[key] || 0) + 1;
     }
+    stats.topicsCount += s.topics?.length || 0;
   });
   return stats;
 }
@@ -551,13 +553,13 @@ function renderDashboard() {
   destroyGlobalCharts();
   if (!g.total || typeof Chart === 'undefined') {
     chartsWrap?.classList.add('hidden');
+    document.getElementById('chart-hero-wrap')?.classList.add('hidden');
     return;
   }
+  ensureChartStyle();
+  const ui = getChartUi();
+  renderHeroChart(g);
   chartsWrap?.classList.remove('hidden');
-
-  const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#1e293b';
-  const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#e2e8f0';
-  const chartFont = { family: 'Segoe UI, system-ui, sans-serif', size: 11 };
 
   const statusLabels = ['Prêtes', 'En cours', 'Erreurs'];
   const statusValues = [g.ready, g.processing, g.error];
@@ -566,19 +568,29 @@ function renderDashboard() {
       type: 'doughnut',
       data: {
         labels: statusLabels,
-        datasets: [{ data: statusValues, backgroundColor: ['#059669', '#5B5FC7', '#DC2626'], borderWidth: 2, borderColor: '#fff' }],
+        datasets: [doughnutDataset(statusValues, ui)],
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { title: { display: true, text: 'État des réunions', font: chartFont }, legend: { position: 'bottom' } },
+        ...chartBaseOptions('État des réunions', ui),
+        cutout: '68%',
+        plugins: {
+          ...chartBaseOptions('État des réunions', ui).plugins,
+          doughnutCenter: {
+            display: true,
+            value: g.total,
+            label: 'réunions',
+            color: ui.text,
+            subColor: ui.muted,
+          },
+        },
       },
     }));
   }
 
   const monthKeys = Object.keys(g.byMonth).sort().slice(-6);
   if (monthKeys.length) {
-    globalChartInstances.push(new Chart(document.getElementById('chart-global-volume'), {
+    const lineCanvas = document.getElementById('chart-global-volume');
+    globalChartInstances.push(new Chart(lineCanvas, {
       type: 'line',
       data: {
         labels: monthKeys.map(k => {
@@ -589,18 +601,23 @@ function renderDashboard() {
           label: 'Réunions',
           data: monthKeys.map(k => g.byMonth[k]),
           borderColor: '#5B5FC7',
-          backgroundColor: 'rgba(91, 95, 199, 0.15)',
+          backgroundColor: 'rgba(91, 95, 199, 0.12)',
           fill: true,
-          tension: 0.35,
+          tension: 0.42,
+          borderWidth: 3,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          pointBackgroundColor: '#fff',
+          pointBorderColor: '#5B5FC7',
+          pointBorderWidth: 2,
         }],
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { title: { display: true, text: 'Activité (6 derniers mois)', font: chartFont }, legend: { display: false } },
+        ...chartBaseOptions('Activité (6 derniers mois)', ui),
+        plugins: { ...chartBaseOptions('Activité (6 derniers mois)', ui).plugins, legend: { display: false } },
         scales: {
-          x: { ticks: { color: textColor, font: chartFont }, grid: { color: gridColor } },
-          y: { beginAtZero: true, ticks: { stepSize: 1, color: textColor, font: chartFont }, grid: { color: gridColor } },
+          x: { ticks: { color: ui.muted, font: { size: 11 } }, grid: { display: false } },
+          y: { beginAtZero: true, ticks: { stepSize: 1, color: ui.muted }, grid: { color: ui.grid } },
         },
       },
     }));
@@ -608,19 +625,32 @@ function renderDashboard() {
 
   const owners = Object.entries(g.actionOwners).sort((a, b) => b[1] - a[1]).slice(0, 8);
   if (owners.length) {
-    globalChartInstances.push(new Chart(document.getElementById('chart-global-actions'), {
+    const barCanvas = document.getElementById('chart-global-actions');
+    globalChartInstances.push(new Chart(barCanvas, {
       type: 'bar',
       data: {
         labels: owners.map(([n]) => n),
-        datasets: [{ label: 'Actions', data: owners.map(([, v]) => v), backgroundColor: '#464775', borderRadius: 6 }],
+        datasets: [{
+          label: 'Actions',
+          data: owners.map(([, v]) => v),
+          borderRadius: 10,
+          borderSkipped: false,
+          backgroundColor: (ctx) => {
+            const { chart } = ctx;
+            const { ctx: c, chartArea } = chart;
+            if (!chartArea) return '#5B5FC7';
+            const hues = [['#464775', '#8B5CF6'], ['#5B5FC7', '#A5B4FC'], ['#059669', '#34D399']];
+            const pair = hues[ctx.dataIndex % hues.length];
+            return barGradient(c, chartArea, pair[0], pair[1]);
+          },
+        }],
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { title: { display: true, text: 'Actions par responsable (toutes réunions)', font: chartFont }, legend: { display: false } },
+        ...chartBaseOptions('Actions par responsable', ui),
+        plugins: { ...chartBaseOptions('Actions par responsable', ui).plugins, legend: { display: false } },
         scales: {
-          x: { ticks: { color: textColor, font: chartFont }, grid: { display: false } },
-          y: { beginAtZero: true, ticks: { stepSize: 1, color: textColor, font: chartFont }, grid: { color: gridColor } },
+          x: { ticks: { color: ui.muted }, grid: { display: false } },
+          y: { beginAtZero: true, ticks: { stepSize: 1, color: ui.muted }, grid: { color: ui.grid } },
         },
       },
     }));
@@ -1087,7 +1117,139 @@ function esc(s) {
 }
 
 // ─── Graphiques (Chart.js + données PPTX) ───
-const CHART_COLORS = ['#464775', '#6264A7', '#5B5FC7', '#059669', '#D97706', '#DC2626', '#2563EB', '#7C3AED'];
+const CHART_COLORS = ['#5B5FC7', '#6264A7', '#14B8A6', '#059669', '#F59E0B', '#EC4899', '#8B5CF6', '#464775'];
+let chartsStyled = false;
+
+const doughnutCenterPlugin = {
+  id: 'doughnutCenter',
+  afterDraw(chart) {
+    const opts = chart.options.plugins?.doughnutCenter;
+    if (!opts?.display) return;
+    const { ctx, chartArea } = chart;
+    if (!chartArea) return;
+    const x = (chartArea.left + chartArea.right) / 2;
+    const y = (chartArea.top + chartArea.bottom) / 2;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${opts.valueSize || 30}px "Segoe UI", system-ui, sans-serif`;
+    ctx.fillStyle = opts.color || '#464775';
+    ctx.fillText(String(opts.value ?? ''), x, y - 10);
+    ctx.font = `600 ${opts.labelSize || 11}px "Segoe UI", system-ui, sans-serif`;
+    ctx.fillStyle = opts.subColor || '#64748b';
+    ctx.fillText(opts.label || '', x, y + 18);
+    ctx.restore();
+  },
+};
+
+function ensureChartStyle() {
+  if (chartsStyled || typeof Chart === 'undefined') return;
+  chartsStyled = true;
+  Chart.register(doughnutCenterPlugin);
+  Chart.defaults.font.family = '"Segoe UI", system-ui, sans-serif';
+  Chart.defaults.color = '#64748b';
+  Chart.defaults.animation.duration = 1100;
+  Chart.defaults.animation.easing = 'easeOutQuart';
+}
+
+function getChartUi() {
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  return {
+    text: isDark ? '#e2e8f0' : '#334155',
+    muted: isDark ? '#94a3b8' : '#64748b',
+    grid: isDark ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.35)',
+    card: isDark ? '#1a1d27' : '#ffffff',
+    title: { display: true, font: { size: 13, weight: '600' }, color: isDark ? '#e2e8f0' : '#464775', padding: { bottom: 8 } },
+    legend: {
+      position: 'bottom',
+      labels: { boxWidth: 10, boxHeight: 10, useBorderRadius: true, borderRadius: 4, padding: 14, font: { size: 11, weight: '500' } },
+    },
+  };
+}
+
+function chartBaseOptions(title, ui) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    layout: { padding: { top: 4, bottom: 4, left: 4, right: 4 } },
+    plugins: { legend: ui.legend, title: { ...ui.title, text: title } },
+  };
+}
+
+function doughnutDataset(values, ui) {
+  return {
+    data: values,
+    backgroundColor: CHART_COLORS.slice(0, values.length),
+    borderWidth: 3,
+    borderColor: ui.card,
+    hoverOffset: 14,
+    spacing: 2,
+  };
+}
+
+function barGradient(ctx, area, from, to) {
+  const g = ctx.createLinearGradient(0, area.bottom, 0, area.top);
+  g.addColorStop(0, from);
+  g.addColorStop(1, to);
+  return g;
+}
+
+function renderHeroChart(g) {
+  ensureChartStyle();
+  const wrap = document.getElementById('chart-hero-wrap');
+  const canvas = document.getElementById('chart-hero');
+  const caption = document.getElementById('chart-hero-caption');
+  if (!wrap || !canvas) return;
+
+  const items = [
+    { label: 'Décisions', value: g.decisions },
+    { label: 'Actions', value: g.actions },
+    { label: 'Questions', value: g.questions },
+    { label: 'Thèmes', value: g.topicsCount || 0 },
+  ].filter(x => x.value > 0);
+
+  if (!items.length) {
+    wrap.classList.add('hidden');
+    return;
+  }
+
+  wrap.classList.remove('hidden');
+  const total = items.reduce((a, b) => a + b.value, 0);
+  if (caption) {
+    caption.textContent = `${total} éléments de compte-rendu répartis sur ${g.ready} réunion(s) prête(s). Passez la souris sur le graphique pour le détail.`;
+  }
+
+  const ui = getChartUi();
+  const chart = new Chart(canvas, {
+    type: 'polarArea',
+    data: {
+      labels: items.map(x => x.label),
+      datasets: [{
+        data: items.map(x => x.value),
+        backgroundColor: CHART_COLORS.slice(0, items.length).map(c => c + 'D9'),
+        borderColor: CHART_COLORS.slice(0, items.length),
+        borderWidth: 2,
+      }],
+    },
+    options: {
+      ...chartBaseOptions('', ui),
+      plugins: {
+        ...chartBaseOptions('', ui).plugins,
+        legend: { ...ui.legend, position: 'right' },
+        title: { display: false },
+      },
+      scales: {
+        r: {
+          beginAtZero: true,
+          grid: { color: ui.grid },
+          ticks: { display: false },
+          pointLabels: { color: ui.text, font: { size: 12, weight: '600' } },
+        },
+      },
+    },
+  });
+  globalChartInstances.push(chart);
+}
 
 function destroyCharts() {
   chartInstances.forEach(c => c.destroy());
@@ -1178,21 +1340,25 @@ function renderCharts(summary) {
   if (!hasData) return;
 
   toggle.classList.remove('hidden');
-
-  const base = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } },
-  };
+  ensureChartStyle();
+  const ui = getChartUi();
+  const totalDist = m.distribution.values.reduce((a, b) => a + b, 0);
 
   if (m.distribution.values.length) {
     chartInstances.push(new Chart(document.getElementById('chart-distribution'), {
       type: 'doughnut',
       data: {
         labels: m.distribution.labels,
-        datasets: [{ data: m.distribution.values, backgroundColor: CHART_COLORS, borderWidth: 2, borderColor: '#fff' }],
+        datasets: [doughnutDataset(m.distribution.values, ui)],
       },
-      options: { ...base, plugins: { ...base.plugins, title: { display: true, text: 'Répartition du compte-rendu', font: { size: 12 } } } },
+      options: {
+        ...chartBaseOptions('Répartition du compte-rendu', ui),
+        cutout: '62%',
+        plugins: {
+          ...chartBaseOptions('Répartition du compte-rendu', ui).plugins,
+          doughnutCenter: { display: true, value: totalDist, label: 'éléments', color: ui.text, subColor: ui.muted },
+        },
+      },
     }));
   }
 
@@ -1201,12 +1367,26 @@ function renderCharts(summary) {
       type: 'bar',
       data: {
         labels: m.actions.labels,
-        datasets: [{ label: 'Actions', data: m.actions.values, backgroundColor: '#5B5FC7', borderRadius: 6 }],
+        datasets: [{
+          label: 'Actions',
+          data: m.actions.values,
+          borderRadius: 10,
+          borderSkipped: false,
+          backgroundColor: (ctx) => {
+            const { chart } = ctx;
+            const { ctx: c, chartArea } = chart;
+            if (!chartArea) return '#5B5FC7';
+            return barGradient(c, chartArea, '#464775', '#5B5FC7');
+          },
+        }],
       },
       options: {
-        ...base,
-        plugins: { ...base.plugins, title: { display: true, text: 'Actions par responsable', font: { size: 12 } }, legend: { display: false } },
-        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+        ...chartBaseOptions('Actions par responsable', ui),
+        plugins: { ...chartBaseOptions('Actions par responsable', ui).plugins, legend: { display: false } },
+        scales: {
+          x: { ticks: { color: ui.muted }, grid: { display: false } },
+          y: { beginAtZero: true, ticks: { stepSize: 1, color: ui.muted }, grid: { color: ui.grid } },
+        },
       },
     }));
   }
@@ -1216,13 +1396,27 @@ function renderCharts(summary) {
       type: 'bar',
       data: {
         labels: m.topics.labels,
-        datasets: [{ label: 'Points abordés', data: m.topics.values, backgroundColor: '#059669', borderRadius: 6 }],
+        datasets: [{
+          label: 'Points abordés',
+          data: m.topics.values,
+          borderRadius: 10,
+          borderSkipped: false,
+          backgroundColor: (ctx) => {
+            const { chart } = ctx;
+            const { ctx: c, chartArea } = chart;
+            if (!chartArea) return '#059669';
+            return barGradient(c, chartArea, '#047857', '#34D399');
+          },
+        }],
       },
       options: {
-        ...base,
+        ...chartBaseOptions('Profondeur par thème', ui),
         indexAxis: 'y',
-        plugins: { ...base.plugins, title: { display: true, text: 'Profondeur par thème', font: { size: 12 } }, legend: { display: false } },
-        scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } },
+        plugins: { ...chartBaseOptions('Profondeur par thème', ui).plugins, legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, ticks: { stepSize: 1, color: ui.muted }, grid: { color: ui.grid } },
+          y: { ticks: { color: ui.text, font: { weight: '600' } }, grid: { display: false } },
+        },
       },
     }));
   }
@@ -1235,12 +1429,28 @@ function renderCharts(summary) {
         datasets: [{
           label: 'Intensité',
           data: m.radar.values,
-          backgroundColor: 'rgba(91, 95, 199, 0.2)',
+          backgroundColor: 'rgba(91, 95, 199, 0.22)',
           borderColor: '#5B5FC7',
-          pointBackgroundColor: '#464775',
+          borderWidth: 2,
+          pointBackgroundColor: '#fff',
+          pointBorderColor: '#464775',
+          pointBorderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 6,
         }],
       },
-      options: { ...base, plugins: { ...base.plugins, title: { display: true, text: 'Vue radar synthétique', font: { size: 12 } } }, scales: { r: { beginAtZero: true } } },
+      options: {
+        ...chartBaseOptions('Vue radar synthétique', ui),
+        scales: {
+          r: {
+            beginAtZero: true,
+            grid: { color: ui.grid },
+            angleLines: { color: ui.grid },
+            pointLabels: { color: ui.text, font: { size: 11, weight: '600' } },
+            ticks: { display: false },
+          },
+        },
+      },
     }));
   }
 
@@ -1249,20 +1459,37 @@ function renderCharts(summary) {
       type: 'polarArea',
       data: {
         labels: m.highlights.labels,
-        datasets: [{ data: m.highlights.values, backgroundColor: CHART_COLORS.map(c => c + 'CC') }],
+        datasets: [{
+          data: m.highlights.values,
+          backgroundColor: CHART_COLORS.map(c => c + 'CC'),
+          borderColor: CHART_COLORS,
+          borderWidth: 2,
+        }],
       },
-      options: { ...base, plugins: { ...base.plugins, title: { display: true, text: 'Poids des points clés', font: { size: 12 } } } },
+      options: {
+        ...chartBaseOptions('Poids des points clés', ui),
+        scales: {
+          r: {
+            grid: { color: ui.grid },
+            ticks: { display: false },
+            pointLabels: { color: ui.muted, font: { size: 10 } },
+          },
+        },
+      },
     }));
   }
 
   if (m.status.values.length) {
     chartInstances.push(new Chart(document.getElementById('chart-status'), {
-      type: 'pie',
+      type: 'doughnut',
       data: {
         labels: m.status.labels,
-        datasets: [{ data: m.status.values, backgroundColor: ['#059669', '#D97706', '#464775'], borderWidth: 2, borderColor: '#fff' }],
+        datasets: [doughnutDataset(m.status.values, ui)],
       },
-      options: { ...base, plugins: { ...base.plugins, title: { display: true, text: 'Suivi & décisions', font: { size: 12 } } } },
+      options: {
+        ...chartBaseOptions('Suivi & décisions', ui),
+        cutout: '55%',
+      },
     }));
   }
 }

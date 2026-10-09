@@ -56,6 +56,17 @@
 
       <div id="dashboard-kpis" class="dashboard-kpis"></div>
 
+      <div id="chart-hero-wrap" class="chart-hero-wrap card hidden">
+        <div class="chart-hero-copy">
+          <p class="chart-hero-eyebrow">Vue d'ensemble</p>
+          <h2 class="chart-hero-title">Synthèse de vos réunions</h2>
+          <p id="chart-hero-caption" class="chart-hero-caption"></p>
+        </div>
+        <div class="chart-hero-canvas">
+          <canvas id="chart-hero"></canvas>
+        </div>
+      </div>
+
       <div id="dashboard-charts-wrap" class="dashboard-charts card hidden">
         <div class="dashboard-section-head">
           <h2>Vue globale</h2>
@@ -128,7 +139,7 @@
               <p>Indicateurs et graphiques détaillés</p>
             </div>
             <div class="charts-grid">
-              <div class="chart-box"><canvas id="chart-distribution"></canvas></div>
+              <div class="chart-box chart-box-premium"><canvas id="chart-distribution"></canvas></div>
               <div class="chart-box"><canvas id="chart-actions"></canvas></div>
               <div class="chart-box"><canvas id="chart-topics"></canvas></div>
               <div class="chart-box"><canvas id="chart-radar"></canvas></div>
@@ -210,6 +221,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-  <script src="app.js?v=7"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>
