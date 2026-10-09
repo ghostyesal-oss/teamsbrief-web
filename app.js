@@ -238,7 +238,7 @@ function switchTab(name) {
 function hasReadableReport(m) {
   const s = coerceSummary(m?.summary);
   if (!s) return false;
-  return !!(
+  const structured = !!(
     s.presentation?.executive_summary
     || s.presentation?.highlights?.length
     || s.tldr?.length
@@ -248,6 +248,8 @@ function hasReadableReport(m) {
     || s.explanation_for_absent
     || s.open_questions?.length
   );
+  if (structured) return true;
+  return !!(renderSummary(s, m) || '').trim();
 }
 
 function updateReportQuickBar(m) {
