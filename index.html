@@ -45,10 +45,32 @@
         <button id="onboarding-go" class="btn btn-primary btn-sm" type="button">Configurer</button>
       </div>
 
+      <div class="dashboard-hero">
+        <div>
+          <p class="dashboard-eyebrow">Tableau de bord</p>
+          <h1 class="dashboard-title">TeamsBrief</h1>
+          <p id="meetings-stats" class="dashboard-subtitle">Synthèse de vos réunions Teams</p>
+        </div>
+        <div class="dashboard-hero-badge" id="dashboard-hero-badge" aria-hidden="true">TB</div>
+      </div>
+
+      <div id="dashboard-kpis" class="dashboard-kpis"></div>
+
+      <div id="dashboard-charts-wrap" class="dashboard-charts card hidden">
+        <div class="dashboard-section-head">
+          <h2>Vue globale</h2>
+          <p>Répartition et activité sur toutes vos réunions</p>
+        </div>
+        <div class="dashboard-charts-grid">
+          <div class="chart-box chart-box-lg"><canvas id="chart-global-status"></canvas></div>
+          <div class="chart-box chart-box-lg"><canvas id="chart-global-volume"></canvas></div>
+          <div class="chart-box chart-box-lg chart-box-wide"><canvas id="chart-global-actions"></canvas></div>
+        </div>
+      </div>
+
       <div class="toolbar">
         <div>
-          <h1>Mes réunions</h1>
-          <p id="meetings-stats" class="stats-line"></p>
+          <h2 class="section-title">Réunions récentes</h2>
         </div>
         <div class="toolbar-actions">
           <label class="btn btn-primary">
@@ -98,7 +120,13 @@
 
       <div class="detail-layout">
         <div class="detail-main">
+          <div id="detail-kpi" class="detail-kpi hidden"></div>
+
           <div id="charts-panel" class="charts-panel hidden">
+            <div class="dashboard-section-head">
+              <h2>Analyse de la réunion</h2>
+              <p>Indicateurs et graphiques détaillés</p>
+            </div>
             <div class="charts-grid">
               <div class="chart-box"><canvas id="chart-distribution"></canvas></div>
               <div class="chart-box"><canvas id="chart-actions"></canvas></div>
@@ -182,6 +210,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>

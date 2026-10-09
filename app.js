@@ -7,6 +7,7 @@ const THEME_KEY = 'teamsbrief_theme';
 const STATUS_LABELS = { ready: 'Prêt', processing: 'En cours', error: 'Erreur' };
 const GROQ_FALLBACK_MODEL = 'openai/gpt-oss-20b';
 let chartInstances = [];
+let globalChartInstances = [];
 
 const SUGGESTIONS = [
   "Qu'est-ce qui a été décidé ?",
@@ -108,6 +109,7 @@ if (settings.model) modelEl.value = settings.model;
 applyTheme(localStorage.getItem(THEME_KEY) || 'light');
 updateOnboarding();
 renderMeetingsList();
+renderDashboard();
 
 // ─── Navigation ───
 function showView(name) {
@@ -124,6 +126,7 @@ function showView(name) {
     document.querySelector('[data-view="meetings"]').classList.add('active');
     currentMeetingId = null;
     renderMeetingsList();
+    renderDashboard();
   }
 }
 
@@ -203,8 +206,11 @@ function applyTheme(theme) {
   document.getElementById('theme-toggle').textContent = theme === 'dark' ? '☀️' : '🌙';
   chartInstances.forEach(c => c.destroy());
   chartInstances = [];
-  const m = meetings.find(x => x.id === currentMeetingId);
+  destroyGlobalCharts();
+  const m = findMeeting(currentMeetingId);
   if (m?.summary) renderCharts(m.summary);
+  if (!views.detail.classList.contains('hidden')) return;
+  renderDashboard();
 }
 
 function toggleKeyVisibility() {
@@ -463,6 +469,194 @@ function deleteCurrentMeeting() {
   if (currentMeetingId) deleteMeeting(currentMeetingId);
 }
 
+function meetingMiniStats(m) {
+  const s = coerceSummary(m.summary);
+  if (!s) return '';
+  const chips = [];
+  if (s.decisions?.length) chips.push(`<span class="mini-chip chip-green">${s.decisions.length} décision(s)</span>`);
+  if (s.actions?.length) chips.push(`<span class="mini-chip chip-blue">${s.actions.length} action(s)</span>`);
+  if (s.open_questions?.length) chips.push(`<span class="mini-chip chip-orange">${s.open_questions.length} question(s)</span>`);
+  return chips.length ? `<div class="meeting-chips">${chips.join('')}</div>` : '';
+}
+
+function computeGlobalStats() {
+  const stats = {
+    total: meetings.length,
+    ready: 0,
+    processing: 0,
+    error: 0,
+    decisions: 0,
+    actions: 0,
+    questions: 0,
+    actionOwners: {},
+    byMonth: {},
+  };
+  meetings.forEach(m => {
+    if (m.status === 'ready') stats.ready += 1;
+    else if (m.status === 'processing') stats.processing += 1;
+    else if (m.status === 'error') stats.error += 1;
+    const s = coerceSummary(m.summary);
+    if (!s) return;
+    stats.decisions += s.decisions?.length || 0;
+    stats.actions += s.actions?.length || 0;
+    stats.questions += s.open_questions?.length || 0;
+    (s.actions || []).forEach(a => {
+      const who = (a.who || 'Non assigné').slice(0, 24);
+      stats.actionOwners[who] = (stats.actionOwners[who] || 0) + 1;
+    });
+    const d = new Date(m.date);
+    if (!Number.isNaN(d.getTime())) {
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      stats.byMonth[key] = (stats.byMonth[key] || 0) + 1;
+    }
+  });
+  return stats;
+}
+
+function destroyGlobalCharts() {
+  globalChartInstances.forEach(c => c.destroy());
+  globalChartInstances = [];
+}
+
+function renderDashboard() {
+  const kpiEl = document.getElementById('dashboard-kpis');
+  const chartsWrap = document.getElementById('dashboard-charts-wrap');
+  if (!kpiEl) return;
+
+  const g = computeGlobalStats();
+  const subtitle = document.getElementById('meetings-stats');
+  if (subtitle) {
+    subtitle.textContent = g.total
+      ? `${g.total} réunion(s) · ${g.ready} prête(s) · ${g.actions} action(s) à suivre`
+      : 'Importez un fichier .vtt Teams pour alimenter votre tableau de bord.';
+  }
+
+  kpiEl.innerHTML = [
+    { label: 'Réunions', value: g.total, tone: 'brand', icon: '📁' },
+    { label: 'Prêtes', value: g.ready, tone: 'green', icon: '✓' },
+    { label: 'Décisions', value: g.decisions, tone: 'violet', icon: '⚖' },
+    { label: 'Actions', value: g.actions, tone: 'blue', icon: '☑' },
+    { label: 'Questions', value: g.questions, tone: 'orange', icon: '?' },
+    { label: 'Erreurs', value: g.error, tone: 'red', icon: '!' },
+  ].map(k => `
+    <div class="kpi-card kpi-${k.tone}">
+      <div class="kpi-icon" aria-hidden="true">${k.icon}</div>
+      <div class="kpi-body">
+        <div class="kpi-value">${k.value}</div>
+        <div class="kpi-label">${k.label}</div>
+      </div>
+    </div>
+  `).join('');
+
+  destroyGlobalCharts();
+  if (!g.total || typeof Chart === 'undefined') {
+    chartsWrap?.classList.add('hidden');
+    return;
+  }
+  chartsWrap?.classList.remove('hidden');
+
+  const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#1e293b';
+  const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#e2e8f0';
+  const chartFont = { family: 'Segoe UI, system-ui, sans-serif', size: 11 };
+
+  const statusLabels = ['Prêtes', 'En cours', 'Erreurs'];
+  const statusValues = [g.ready, g.processing, g.error];
+  if (statusValues.some(v => v > 0)) {
+    globalChartInstances.push(new Chart(document.getElementById('chart-global-status'), {
+      type: 'doughnut',
+      data: {
+        labels: statusLabels,
+        datasets: [{ data: statusValues, backgroundColor: ['#059669', '#5B5FC7', '#DC2626'], borderWidth: 2, borderColor: '#fff' }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { title: { display: true, text: 'État des réunions', font: chartFont }, legend: { position: 'bottom' } },
+      },
+    }));
+  }
+
+  const monthKeys = Object.keys(g.byMonth).sort().slice(-6);
+  if (monthKeys.length) {
+    globalChartInstances.push(new Chart(document.getElementById('chart-global-volume'), {
+      type: 'line',
+      data: {
+        labels: monthKeys.map(k => {
+          const [y, mo] = k.split('-');
+          return `${mo}/${y.slice(2)}`;
+        }),
+        datasets: [{
+          label: 'Réunions',
+          data: monthKeys.map(k => g.byMonth[k]),
+          borderColor: '#5B5FC7',
+          backgroundColor: 'rgba(91, 95, 199, 0.15)',
+          fill: true,
+          tension: 0.35,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { title: { display: true, text: 'Activité (6 derniers mois)', font: chartFont }, legend: { display: false } },
+        scales: {
+          x: { ticks: { color: textColor, font: chartFont }, grid: { color: gridColor } },
+          y: { beginAtZero: true, ticks: { stepSize: 1, color: textColor, font: chartFont }, grid: { color: gridColor } },
+        },
+      },
+    }));
+  }
+
+  const owners = Object.entries(g.actionOwners).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (owners.length) {
+    globalChartInstances.push(new Chart(document.getElementById('chart-global-actions'), {
+      type: 'bar',
+      data: {
+        labels: owners.map(([n]) => n),
+        datasets: [{ label: 'Actions', data: owners.map(([, v]) => v), backgroundColor: '#464775', borderRadius: 6 }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { title: { display: true, text: 'Actions par responsable (toutes réunions)', font: chartFont }, legend: { display: false } },
+        scales: {
+          x: { ticks: { color: textColor, font: chartFont }, grid: { display: false } },
+          y: { beginAtZero: true, ticks: { stepSize: 1, color: textColor, font: chartFont }, grid: { color: gridColor } },
+        },
+      },
+    }));
+  }
+}
+
+function renderDetailKpis(m) {
+  const el = document.getElementById('detail-kpi');
+  if (!el) return;
+  const s = coerceSummary(m.summary);
+  if (!s || m.status !== 'ready') {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+    return;
+  }
+  const highlights = s.presentation?.highlights?.length || s.tldr?.length || 0;
+  const done = (m.doneActions || []).length;
+  const totalActions = s.actions?.length || 0;
+  const progress = totalActions ? Math.round((done / totalActions) * 100) : 0;
+
+  el.classList.remove('hidden');
+  el.innerHTML = `
+    <div class="kpi-card kpi-violet"><div class="kpi-body"><div class="kpi-value">${s.decisions?.length || 0}</div><div class="kpi-label">Décisions</div></div></div>
+    <div class="kpi-card kpi-blue"><div class="kpi-body"><div class="kpi-value">${totalActions}</div><div class="kpi-label">Actions</div></div></div>
+    <div class="kpi-card kpi-green"><div class="kpi-body"><div class="kpi-value">${highlights}</div><div class="kpi-label">Points clés</div></div></div>
+    <div class="kpi-card kpi-orange"><div class="kpi-body"><div class="kpi-value">${s.open_questions?.length || 0}</div><div class="kpi-label">Questions</div></div></div>
+    <div class="kpi-card kpi-brand kpi-progress">
+      <div class="kpi-body">
+        <div class="kpi-value">${progress}%</div>
+        <div class="kpi-label">Actions cochées (${done}/${totalActions})</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div>
+      </div>
+    </div>
+  `;
+}
+
 // ─── Liste ───
 function renderMeetingsList() {
   const el = document.getElementById('meetings-list');
@@ -476,10 +670,7 @@ function renderMeetingsList() {
     return hay.includes(q);
   });
 
-  const ready = meetings.filter(m => m.status === 'ready').length;
-  document.getElementById('meetings-stats').textContent = meetings.length
-    ? `${meetings.length} réunion(s) · ${ready} prête(s)`
-    : '';
+  renderDashboard();
 
   if (!filtered.length) {
     el.innerHTML = meetings.length
@@ -490,9 +681,11 @@ function renderMeetingsList() {
 
   el.innerHTML = filtered.map(m => `
     <div class="meeting-item" data-id="${m.id}">
+      <div class="meeting-item-accent status-${m.status}"></div>
       <div class="meeting-item-main">
         <h3>${esc(m.title)}</h3>
-        <p>${new Date(m.date).toLocaleString('fr-FR')}${m.summary?.decisions?.length ? ` · ${m.summary.decisions.length} décision(s)` : ''}</p>
+        <p class="meeting-date">${new Date(m.date).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+        ${meetingMiniStats(m)}
       </div>
       <div class="meeting-meta">
         <span class="badge ${m.status}">${statusLabel(m.status)}</span>
@@ -544,6 +737,7 @@ function openMeeting(id) {
   chartsToggle.classList.add('hidden');
   chartsToggle.classList.remove('active');
   chartsToggle.textContent = 'Graphiques';
+  renderDetailKpis(m);
 
   switchTab('summary');
   document.getElementById('transcript-content').textContent = m.transcript || '(vide)';
@@ -552,15 +746,26 @@ function openMeeting(id) {
   const panel = document.getElementById('summary-content');
   if (m.status === 'processing') {
     destroyCharts();
+    renderDetailKpis(m);
     panel.innerHTML = '<div class="loading-box"><div class="spinner"></div>Génération du résumé en cours…</div>';
   } else if (m.status === 'error') {
     destroyCharts();
+    renderDetailKpis(m);
     panel.innerHTML = `<div class="error-box">${esc(m.error || 'Erreur')}</div>`;
   } else if (m.summary) {
     const html = renderSummary(m.summary, m);
     panel.innerHTML = html || '<div class="empty-report">Résumé vide. Cliquez sur <strong>Réessayer</strong> pour régénérer.</div>';
     renderReportTab(m);
-    try { renderCharts(m.summary); } catch { /* graphiques optionnels */ }
+    try {
+      renderCharts(m.summary);
+      const hasCharts = !document.getElementById('charts-toggle').classList.contains('hidden');
+      if (hasCharts) {
+        chartsPanel.classList.remove('hidden');
+        chartsToggle.classList.remove('hidden');
+        chartsToggle.classList.add('active');
+        chartsToggle.textContent = 'Masquer graphiques';
+      }
+    } catch { /* graphiques optionnels */ }
     bindActionCheckboxes(m);
   } else {
     destroyCharts();
@@ -636,6 +841,7 @@ function bindActionCheckboxes(meeting) {
       else meeting.doneActions = meeting.doneActions.filter(x => x !== i);
       cb.closest('.action-item').classList.toggle('done', cb.checked);
       saveMeetings();
+      renderDetailKpis(meeting);
     });
   });
 }
