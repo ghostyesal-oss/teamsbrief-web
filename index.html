@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
   <div id="toast-container" class="toast-container"></div>
@@ -70,19 +70,19 @@
         </div>
         <div class="toolbar-actions">
           <label class="btn btn-primary">
-            + Importer
+            Importer .vtt
             <input type="file" id="file-input" accept=".vtt,.txt" multiple hidden>
           </label>
-          <button id="backup-export" class="btn btn-ghost btn-sm" type="button" title="Sauvegarder">💾</button>
-          <label class="btn btn-ghost btn-sm" title="Restaurer">
-            📂
+          <button id="backup-export" class="btn btn-ghost btn-sm" type="button" title="Exporter une sauvegarde">Exporter</button>
+          <label class="btn btn-ghost btn-sm" title="Importer une sauvegarde">
+            Restaurer
             <input type="file" id="backup-import" accept=".json" hidden>
           </label>
         </div>
       </div>
 
       <div id="dropzone" class="dropzone">
-        <span>Glissez vos fichiers .vtt ici</span>
+        <span>Glissez vos transcriptions Teams <strong>.vtt</strong> ici</span>
       </div>
 
       <div class="search-bar">
@@ -157,20 +157,21 @@
           <div id="chat-suggestions" class="suggestions"></div>
           <form id="chat-form" class="chat-form">
             <input type="text" id="chat-input" placeholder="Votre question…" autocomplete="off">
-            <button type="submit" class="btn btn-primary">→</button>
+            <button type="submit" class="btn btn-primary" aria-label="Envoyer">Envoyer</button>
           </form>
         </div>
       </div>
     </section>
 
-    <section id="view-settings" class="view hidden">
+    <section id="view-settings" class="view hidden settings-page">
       <h1>Paramètres</h1>
+      <p class="settings-lead">Connexion à Groq et gestion des données locales.</p>
       <div class="card settings-card">
         <label class="field">
           <span>Clé API Groq</span>
           <div class="input-row">
             <input type="password" id="groq-key" placeholder="gsk_...">
-            <button id="toggle-key" class="btn btn-ghost btn-sm" type="button">👁</button>
+            <button id="toggle-key" class="btn btn-ghost btn-sm" type="button" aria-label="Afficher la clé">Afficher</button>
           </div>
           <small>Gratuit sur <a href="https://console.groq.com" target="_blank">console.groq.com</a></small>
         </label>
@@ -199,6 +200,6 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-  <script src="app.js?v=14"></script>
+  <script src="app.js?v=15"></script>
 </body>
 </html>

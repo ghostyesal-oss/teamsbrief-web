@@ -276,7 +276,10 @@ function applyTheme(theme) {
 
 function toggleKeyVisibility() {
   const inp = document.getElementById('groq-key');
-  inp.type = inp.type === 'password' ? 'text' : 'password';
+  const btn = document.getElementById('toggle-key');
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  if (btn) btn.textContent = show ? 'Masquer' : 'Afficher';
 }
 
 function updateOnboarding() {
@@ -808,7 +811,7 @@ function renderMeetingsList() {
   if (!filtered.length) {
     el.innerHTML = meetings.length
       ? '<div class="empty">Aucun résultat pour cette recherche.</div>'
-      : '<div class="empty"><div class="empty-icon">📋</div>Importez un fichier .vtt Teams pour commencer.</div>';
+      : '<div class="empty"><div class="empty-icon" aria-hidden="true"></div><p>Importez une transcription Teams (.vtt) pour générer votre premier rapport.</p></div>';
     return;
   }
 
