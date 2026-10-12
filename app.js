@@ -6,6 +6,9 @@ const THEME_KEY = 'teamsbrief_theme';
 
 const STATUS_LABELS = { ready: 'Prêt', processing: 'En cours', error: 'Erreur' };
 const GROQ_FALLBACK_MODEL = 'openai/gpt-oss-20b';
+const GROQ_FETCH_TIMEOUT_MS = 90_000;
+const PROCESSING_STALE_MS = 2 * 60 * 1000;
+let generationResumeRunning = false;
 let globalChartInstances = [];
 
 const SUGGESTIONS = [
@@ -104,8 +107,10 @@ const modelEl = document.getElementById('groq-model');
 if (settings.model) modelEl.value = settings.model;
 applyTheme(localStorage.getItem(THEME_KEY) || 'light');
 updateOnboarding();
+reconcileMeetingStatuses();
 renderMeetingsList();
 renderDashboard();
+resumeInterruptedGenerations();
 
 // ─── Navigation ───
 function showView(name) {
@@ -166,6 +171,49 @@ function findMeeting(id) {
   if (id == null) return null;
   const sid = String(id);
   return meetings.find(m => String(m.id) === sid) || null;
+}
+
+function processingAgeMs(m) {
+  const t = m.processingStartedAt || m.date;
+  const ms = new Date(t).getTime();
+  return Number.isNaN(ms) ? PROCESSING_STALE_MS + 1 : Date.now() - ms;
+}
+
+/** Corrige les statuts « En cours » orphelins (onglet fermé, rechargement, etc.). */
+function reconcileMeetingStatuses() {
+  let changed = false;
+  for (const m of meetings) {
+    if (m.status !== 'processing') continue;
+    if (hasAiSummary(m)) {
+      m.status = 'ready';
+      delete m.processingStartedAt;
+      changed = true;
+      continue;
+    }
+    if (processingAgeMs(m) > PROCESSING_STALE_MS) {
+      m.status = 'error';
+      m.error = m.error || 'Génération interrompue (page fermée ou délai dépassé). Cliquez sur Réessayer.';
+      delete m.processingStartedAt;
+      changed = true;
+    }
+  }
+  if (changed) saveMeetings();
+  return changed;
+}
+
+async function fetchWithTimeout(url, options = {}, ms = GROQ_FETCH_TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error('Délai Groq dépassé (90 s). Réessayez ou raccourcissez la transcription.');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function loadMeetings() {
@@ -333,6 +381,9 @@ function parseGroqJson(raw) {
 
 function humanizeGroqError(msg) {
   const m = String(msg || '');
+  if (m.includes('TimeoutError') || m.includes('timed out') || m.includes('aborted')) {
+    return 'Délai Groq dépassé (2 min). Vérifiez votre connexion puis réessayez.';
+  }
   if (m.includes('model_not_found') || m.includes('does not exist')) {
     return 'Modèle Groq introuvable. Allez dans Paramètres et choisissez « openai/gpt-oss-20b ».';
   }
@@ -356,7 +407,7 @@ async function callGroqOnce(messages, jsonMode, model, url) {
 
   const isLocalProxy = url.startsWith('/');
   const isRemoteProxy = url.includes('/api/groq');
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -431,6 +482,42 @@ async function processFiles(files) {
   if (lastId) openMeeting(lastId);
 }
 
+async function generateMeetingSummary(meeting, { fresh = false } = {}) {
+  if (!settings.apiKey) {
+    meeting.status = 'error';
+    meeting.error = 'Clé Groq manquante. Paramètres → clé gsk_… → Enregistrer, puis Réessayer.';
+    delete meeting.processingStartedAt;
+    saveMeetings();
+    return false;
+  }
+  meeting.status = 'processing';
+  meeting.error = null;
+  if (fresh || !meeting.processingStartedAt) {
+    meeting.processingStartedAt = new Date().toISOString();
+  }
+  saveMeetings();
+  renderMeetingsList();
+
+  try {
+    const raw = await callGroq([
+      { role: 'system', content: 'Tu réponds uniquement en JSON valide, en français.' },
+      { role: 'user', content: SUMMARY_PROMPT(meeting.title, meeting.transcript) },
+    ], true);
+    meeting.summary = coerceSummary(parseGroqJson(raw));
+    meeting.status = 'ready';
+    delete meeting.processingStartedAt;
+    return true;
+  } catch (err) {
+    meeting.status = 'error';
+    meeting.error = humanizeGroqError(err.message);
+    delete meeting.processingStartedAt;
+    return false;
+  } finally {
+    saveMeetings();
+    renderMeetingsList();
+  }
+}
+
 async function importOneFile(file) {
   const text = await file.text();
   const transcript = file.name.endsWith('.vtt') || text.startsWith('WEBVTT') ? parseVtt(text) : text;
@@ -443,6 +530,7 @@ async function importOneFile(file) {
     transcript,
     summary: null,
     status: 'processing',
+    processingStartedAt: new Date().toISOString(),
     chat: [],
     doneActions: [],
   };
@@ -451,46 +539,80 @@ async function importOneFile(file) {
   saveMeetings();
   renderMeetingsList();
 
-  try {
-    const raw = await callGroq([
-      { role: 'system', content: 'Tu réponds uniquement en JSON valide, en français.' },
-      { role: 'user', content: SUMMARY_PROMPT(title, transcript) },
-    ], true);
-    meeting.summary = coerceSummary(parseGroqJson(raw));
-    meeting.status = 'ready';
-    toast(`"${title}" prête`);
-  } catch (err) {
-    meeting.status = 'error';
-    meeting.error = humanizeGroqError(err.message);
-    toast(`Erreur : ${title}`, 'error');
-  }
-
-  saveMeetings();
+  const ok = await generateMeetingSummary(meeting, { fresh: true });
+  toast(ok ? `"${title}" prête` : `Erreur : ${title}`, ok ? 'success' : 'error');
   return meeting.id;
 }
 
 async function reprocessMeeting() {
   const m = meetings.find(x => x.id === currentMeetingId);
   if (!m) return;
-  m.status = 'processing';
-  m.error = null;
-  saveMeetings();
   openMeeting(m.id);
-  try {
-    const raw = await callGroq([
-      { role: 'system', content: 'Tu réponds uniquement en JSON valide, en français.' },
-      { role: 'user', content: SUMMARY_PROMPT(m.title, m.transcript) },
-    ], true);
-    m.summary = coerceSummary(parseGroqJson(raw));
-    m.status = 'ready';
-    toast('Résumé régénéré');
-  } catch (err) {
-    m.status = 'error';
-    m.error = humanizeGroqError(err.message);
-    toast(err.message, 'error');
+  const ok = await generateMeetingSummary(m, { fresh: true });
+  toast(ok ? 'Résumé régénéré' : (m.error || 'Échec'), ok ? 'success' : 'error');
+  openMeeting(m.id);
+}
+
+async function resumeAllProcessing() {
+  reconcileMeetingStatuses();
+  const pending = meetings.filter(m =>
+    m.status === 'processing'
+    && !hasAiSummary(m)
+    && (m.transcript || '').trim().length > 0
+  );
+  if (!pending.length) {
+    toast('Aucune génération en attente', 'error');
+    return;
   }
-  saveMeetings();
-  openMeeting(m.id);
+  if (!settings.apiKey) {
+    toast('Ajoutez votre clé Groq dans Paramètres', 'error');
+    showView('settings');
+    return;
+  }
+  await runResumeInterruptedGenerations(pending);
+}
+
+async function runResumeInterruptedGenerations(pending) {
+  if (generationResumeRunning) return;
+  generationResumeRunning = true;
+  toast(`Génération de ${pending.length} rapport(s)…`);
+  try {
+    for (const m of pending) {
+      const ok = await generateMeetingSummary(m, { fresh: false });
+      if (!ok) toast(`${m.title} : ${m.error || 'erreur'}`, 'error');
+    }
+    renderDashboard();
+  } finally {
+    generationResumeRunning = false;
+  }
+}
+
+async function resumeInterruptedGenerations() {
+  reconcileMeetingStatuses();
+  if (!settings.apiKey) {
+    let changed = false;
+    for (const m of meetings) {
+      if (m.status !== 'processing') continue;
+      m.status = 'error';
+      m.error = 'Clé Groq manquante. Paramètres → enregistrez votre clé puis Réessayer.';
+      delete m.processingStartedAt;
+      changed = true;
+    }
+    if (changed) {
+      saveMeetings();
+      renderMeetingsList();
+      renderDashboard();
+    }
+    return;
+  }
+  const pending = meetings.filter(m =>
+    m.status === 'processing'
+    && !hasAiSummary(m)
+    && (m.transcript || '').trim().length > 0
+    && processingAgeMs(m) < PROCESSING_STALE_MS
+  );
+  if (!pending.length) return;
+  await runResumeInterruptedGenerations(pending);
 }
 
 function deleteMeeting(id) {
@@ -591,8 +713,10 @@ function renderReportsHub() {
   } else {
     inner += `<div class="reports-hub-empty">
       <p><strong>Aucun rapport lisible pour l’instant.</strong></p>
-      ${failed.length ? `<p>${failed.length} réunion(s) en erreur — ouvrez-les et cliquez <strong>Réessayer</strong> (clé Groq + modèle <code>openai/gpt-oss-20b</code>).</p>` : ''}
-      ${pending.length ? `<p>${pending.length} génération(s) en cours…</p>` : ''}
+      ${failed.length ? `<p>${failed.length} réunion(s) en erreur.</p>
+        <button type="button" class="btn btn-ghost btn-sm" id="retry-all-failed">Réessayer tout</button>` : ''}
+      ${pending.length ? `<p>${pending.length} génération(s) bloquée(s) ou en cours.</p>
+        <button type="button" class="btn btn-primary btn-sm" id="resume-all-processing">Relancer la génération</button>` : ''}
       ${!failed.length && !pending.length ? '<p>Importez un fichier .vtt ou restaurez une sauvegarde JSON (💾 / 📂).</p>' : ''}
       <p class="reports-hub-origin">Les données sont enregistrées <strong>dans ce navigateur</strong> pour cette adresse web (GitHub ≠ Vercel = listes différentes).</p>
     </div>`;
@@ -606,6 +730,32 @@ function renderReportsHub() {
       switchTab('report');
     });
   });
+  document.getElementById('resume-all-processing')?.addEventListener('click', () => {
+    resumeAllProcessing();
+  });
+  document.getElementById('retry-all-failed')?.addEventListener('click', () => {
+    retryAllFailedMeetings();
+  });
+}
+
+async function retryAllFailedMeetings() {
+  if (!settings.apiKey) {
+    toast('Ajoutez votre clé Groq dans Paramètres', 'error');
+    showView('settings');
+    return;
+  }
+  const failed = meetings.filter(m =>
+    m.status === 'error' && (m.transcript || '').trim().length > 0
+  );
+  if (!failed.length) {
+    toast('Aucune réunion en erreur', 'error');
+    return;
+  }
+  toast(`Nouvelle tentative pour ${failed.length} réunion(s)…`);
+  for (const m of failed) {
+    await generateMeetingSummary(m, { fresh: true });
+  }
+  renderDashboard();
 }
 
 function renderDashboard() {
@@ -672,7 +822,7 @@ function renderMeetingsList() {
       </div>
       <div class="meeting-meta">
         ${hasReadableReport(m) ? '<button type="button" class="meeting-report-btn" data-report="' + m.id + '">Rapport</button>' : ''}
-        ${m.status === 'error' ? '<button type="button" class="meeting-report-btn meeting-report-retry" data-retry="' + m.id + '">Réessayer</button>' : ''}
+        ${m.status === 'error' || m.status === 'processing' ? '<button type="button" class="meeting-report-btn meeting-report-retry" data-retry="' + m.id + '">' + (m.status === 'processing' ? 'Relancer' : 'Réessayer') + '</button>' : ''}
         <span class="badge ${m.status}">${statusLabel(m.status)}</span>
         <button class="meeting-delete" data-del="${m.id}" title="Supprimer">✕</button>
       </div>
@@ -716,6 +866,11 @@ function openMeeting(id) {
   const m = findMeeting(id);
   if (!m) return;
   m.summary = coerceSummary(m.summary);
+  if (m.status === 'processing' && hasAiSummary(m)) {
+    m.status = 'ready';
+    delete m.processingStartedAt;
+    saveMeetings();
+  }
 
   document.getElementById('detail-title').textContent = m.title;
   const metaEl = document.getElementById('detail-meta');
@@ -739,7 +894,7 @@ function openMeeting(id) {
   document.getElementById('transcript-search').value = '';
 
   const panel = document.getElementById('summary-content');
-  if (m.status === 'processing') {
+  if (m.status === 'processing' && !hasAiSummary(m)) {
     panel.innerHTML = '<div class="loading-box"><div class="spinner"></div>Génération du résumé en cours…</div>';
   } else if (m.status === 'error') {
     panel.innerHTML = `<div class="error-box">${esc(m.error || 'Erreur')}</div><p class="report-hint">Relancez depuis la liste avec le bouton <strong>Réessayer</strong>.</p>`;
