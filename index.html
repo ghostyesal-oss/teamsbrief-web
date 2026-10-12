@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=15">
+  <link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
   <div id="toast-container" class="toast-container"></div>
@@ -52,10 +52,14 @@
       </div>
 
       <div class="dashboard-hero">
-        <div>
+        <div class="dashboard-hero-copy">
           <p class="dashboard-eyebrow">Tableau de bord</p>
           <h1 class="dashboard-title">TeamsBrief</h1>
           <p id="meetings-stats" class="dashboard-subtitle">Synthèse de vos réunions Teams</p>
+          <label class="btn btn-hero btn-sm">
+            Importer une transcription
+            <input type="file" class="hero-file-input" accept=".vtt,.txt" multiple hidden>
+          </label>
         </div>
         <div class="dashboard-hero-badge" id="dashboard-hero-badge" aria-hidden="true">TB</div>
       </div>
@@ -67,6 +71,7 @@
       <div class="toolbar">
         <div>
           <h2 class="section-title">Réunions récentes</h2>
+          <p class="section-sub">Historique des appels importés depuis Teams</p>
         </div>
         <div class="toolbar-actions">
           <label class="btn btn-primary">
@@ -81,13 +86,16 @@
         </div>
       </div>
 
+      <div class="meetings-shell card">
       <div id="dropzone" class="dropzone">
         <span>Glissez vos transcriptions Teams <strong>.vtt</strong> ici</span>
       </div>
 
       <div class="search-bar">
-        <input type="search" id="search-input" placeholder="Rechercher une réunion… (Ctrl+K)">
-        <select id="filter-status">
+        <div class="search-field">
+          <input type="search" id="search-input" placeholder="Rechercher une réunion… (Ctrl+K)" autocomplete="off">
+        </div>
+        <select id="filter-status" class="filter-select" aria-label="Filtrer par statut">
           <option value="all">Tous</option>
           <option value="ready">Prêtes</option>
           <option value="processing">En cours</option>
@@ -96,6 +104,7 @@
       </div>
 
       <div id="meetings-list" class="meetings-list"></div>
+      </div>
     </section>
 
     <section id="view-detail" class="view hidden">
@@ -199,7 +208,13 @@
     </section>
   </main>
 
+  <footer class="site-footer">
+    <span>TeamsBrief — comptes-rendus Teams</span>
+    <span class="site-footer-sep">·</span>
+    <span>Données locales · Groq</span>
+  </footer>
+
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-  <script src="app.js?v=15"></script>
+  <script src="app.js?v=16"></script>
 </body>
 </html>

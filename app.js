@@ -61,6 +61,9 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
 });
 
 document.getElementById('file-input').addEventListener('change', handleFileImport);
+document.querySelectorAll('.hero-file-input').forEach(inp => {
+  inp.addEventListener('change', handleFileImport);
+});
 document.getElementById('back-btn').addEventListener('click', () => showView('meetings'));
 document.getElementById('save-settings').addEventListener('click', saveSettings);
 document.getElementById('chat-form').addEventListener('submit', handleChat);
@@ -119,11 +122,17 @@ function showView(name) {
 
   if (name === 'detail') {
     views.detail.classList.remove('hidden');
+    views.detail.classList.add('view-enter');
+    requestAnimationFrame(() => views.detail.classList.remove('view-enter'));
   } else if (name === 'settings') {
     views.settings.classList.remove('hidden');
+    views.settings.classList.add('view-enter');
+    requestAnimationFrame(() => views.settings.classList.remove('view-enter'));
     document.querySelector('[data-view="settings"]').classList.add('active');
   } else {
     views.meetings.classList.remove('hidden');
+    views.meetings.classList.add('view-enter');
+    requestAnimationFrame(() => views.meetings.classList.remove('view-enter'));
     document.querySelector('[data-view="meetings"]').classList.add('active');
     currentMeetingId = null;
     renderMeetingsList();
@@ -255,6 +264,12 @@ function toast(msg, type = 'success') {
 }
 
 function statusLabel(s) { return STATUS_LABELS[s] || s; }
+
+function meetingInitials(title) {
+  const words = String(title || 'R').trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+  return (words[0] || 'R').slice(0, 2).toUpperCase();
+}
 
 function newMeetingId() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -702,17 +717,18 @@ function renderReportsHub() {
     </div>`;
 
   if (reports.length) {
-    inner += `<ul class="reports-hub-list">${reports.slice(0, 12).map(m => `
-      <li class="reports-hub-item">
-        <div>
-          <strong>${esc(m.title)}</strong>
-          <span class="reports-hub-date">${new Date(m.date).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+    inner += `<div class="reports-hub-grid">${reports.slice(0, 8).map(m => `
+      <article class="report-card">
+        <div class="report-card-avatar" aria-hidden="true">${esc(meetingInitials(m.title))}</div>
+        <div class="report-card-body">
+          <h3 class="report-card-title">${esc(m.title)}</h3>
+          <p class="report-card-date">${new Date(m.date).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</p>
           ${hasAiSummary(m) ? '<span class="mini-chip chip-green">Synthèse IA</span>' : '<span class="mini-chip chip-orange">Transcription</span>'}
         </div>
         <button type="button" class="btn btn-primary btn-sm reports-hub-open" data-id="${esc(m.id)}">Ouvrir</button>
-      </li>
-    `).join('')}</ul>`;
-    if (reports.length > 12) inner += `<p class="reports-hub-more">+ ${reports.length - 12} autre(s) rapport(s) dans la liste ci-dessous.</p>`;
+      </article>
+    `).join('')}</div>`;
+    if (reports.length > 8) inner += `<p class="reports-hub-more">+ ${reports.length - 8} autre(s) rapport(s) dans la liste ci-dessous.</p>`;
   } else {
     inner += `<div class="reports-hub-empty">
       <p><strong>Aucun rapport lisible pour l’instant.</strong></p>
@@ -720,7 +736,7 @@ function renderReportsHub() {
         <button type="button" class="btn btn-ghost btn-sm" id="retry-all-failed">Réessayer tout</button>` : ''}
       ${pending.length ? `<p>${pending.length} génération(s) bloquée(s) ou en cours.</p>
         <button type="button" class="btn btn-primary btn-sm" id="resume-all-processing">Relancer la génération</button>` : ''}
-      ${!failed.length && !pending.length ? '<p>Importez un fichier .vtt ou restaurez une sauvegarde JSON (💾 / 📂).</p>' : ''}
+      ${!failed.length && !pending.length ? '<p>Importez un fichier .vtt ou utilisez <strong>Exporter / Restaurer</strong> pour une sauvegarde.</p>' : ''}
       <p class="reports-hub-origin">Les données sont enregistrées <strong>dans ce navigateur</strong> pour cette adresse web (GitHub ≠ Vercel = listes différentes).</p>
     </div>`;
   }
@@ -776,16 +792,19 @@ function renderDashboard() {
       : 'Importez une transcription Teams (.vtt) pour générer vos rapports d’appel.';
   }
 
-  kpiEl.innerHTML = [
-    { label: 'Réunions', value: g.total, tone: 'brand' },
-    { label: 'Rapports', value: reportsReady, tone: 'green' },
-    { label: 'Actions', value: g.actions, tone: 'blue' },
-    { label: 'Erreurs', value: g.error, tone: 'red' },
-  ].map(k => `
-    <div class="kpi-card kpi-${k.tone}">
+  const kpiDefs = [
+    { label: 'Réunions', value: g.total, tone: 'brand', hint: 'importées' },
+    { label: 'Rapports', value: reportsReady, tone: 'green', hint: 'lisibles' },
+    { label: 'Actions', value: g.actions, tone: 'blue', hint: 'à suivre' },
+    { label: 'Erreurs', value: g.error, tone: 'red', hint: 'à corriger' },
+  ];
+  kpiEl.innerHTML = kpiDefs.map((k, i) => `
+    <div class="kpi-card kpi-${k.tone}" style="--stagger:${i}">
+      <div class="kpi-icon-wrap" aria-hidden="true"></div>
       <div class="kpi-body">
         <div class="kpi-value">${k.value}</div>
         <div class="kpi-label">${k.label}</div>
+        <div class="kpi-hint">${k.hint}</div>
       </div>
     </div>
   `).join('');
@@ -815,9 +834,10 @@ function renderMeetingsList() {
     return;
   }
 
-  el.innerHTML = filtered.map(m => `
-    <div class="meeting-item" data-id="${m.id}">
+  el.innerHTML = filtered.map((m, i) => `
+    <div class="meeting-item" data-id="${m.id}" style="--stagger:${i % 12}">
       <div class="meeting-item-accent status-${m.status}"></div>
+      <div class="meeting-avatar" aria-hidden="true">${esc(meetingInitials(m.title))}</div>
       <div class="meeting-item-main">
         <h3>${esc(m.title)}</h3>
         <p class="meeting-date">${new Date(m.date).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</p>
@@ -827,7 +847,8 @@ function renderMeetingsList() {
         ${hasReadableReport(m) ? '<button type="button" class="meeting-report-btn" data-report="' + m.id + '">Rapport</button>' : ''}
         ${m.status === 'error' || m.status === 'processing' ? '<button type="button" class="meeting-report-btn meeting-report-retry" data-retry="' + m.id + '">' + (m.status === 'processing' ? 'Relancer' : 'Réessayer') + '</button>' : ''}
         <span class="badge ${m.status}">${statusLabel(m.status)}</span>
-        <button class="meeting-delete" data-del="${m.id}" title="Supprimer">✕</button>
+        <button class="meeting-delete" data-del="${m.id}" title="Supprimer" aria-label="Supprimer">×</button>
+        <span class="meeting-chevron" aria-hidden="true"></span>
       </div>
     </div>
   `).join('');
