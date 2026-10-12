@@ -8,6 +8,9 @@
   <title>TeamsBrief — Résumés Teams</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23464775' width='100' height='100' rx='20'/><text x='50' y='68' font-size='50' text-anchor='middle' fill='white'>T</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -28,11 +31,14 @@
   </div>
 
   <header class="header">
-    <div class="logo">TeamsBrief</div>
-    <nav>
+    <div class="logo">
+      <span class="logo-mark" aria-hidden="true">TB</span>
+      <span class="logo-text">TeamsBrief</span>
+    </div>
+    <nav class="header-nav">
       <button class="nav-btn active" data-view="meetings">Réunions</button>
       <button class="nav-btn" data-view="settings">Paramètres</button>
-      <button id="theme-toggle" class="nav-btn icon-btn" type="button" title="Mode sombre">🌙</button>
+      <button id="theme-toggle" class="nav-btn nav-btn-quiet" type="button" title="Thème">Thème</button>
     </nav>
   </header>
 
@@ -56,30 +62,7 @@
 
       <div id="dashboard-kpis" class="dashboard-kpis"></div>
 
-      <div id="chart-hero-wrap" class="chart-hero-wrap card hidden">
-        <div class="chart-hero-copy">
-          <p class="chart-hero-eyebrow">Vue d'ensemble</p>
-          <h2 class="chart-hero-title">Synthèse de vos réunions</h2>
-          <p id="chart-hero-caption" class="chart-hero-caption"></p>
-        </div>
-        <div class="chart-hero-canvas">
-          <canvas id="chart-hero"></canvas>
-        </div>
-      </div>
-
       <div id="reports-hub" class="reports-hub card hidden"></div>
-
-      <div id="dashboard-charts-wrap" class="dashboard-charts card hidden">
-        <div class="dashboard-section-head">
-          <h2>Vue globale</h2>
-          <p>Répartition et activité sur toutes vos réunions</p>
-        </div>
-        <div class="dashboard-charts-grid">
-          <div class="chart-box chart-box-lg"><canvas id="chart-global-status"></canvas></div>
-          <div class="chart-box chart-box-lg"><canvas id="chart-global-volume"></canvas></div>
-          <div class="chart-box chart-box-lg chart-box-wide"><canvas id="chart-global-actions"></canvas></div>
-        </div>
-      </div>
 
       <div class="toolbar">
         <div>
@@ -116,57 +99,38 @@
     </section>
 
     <section id="view-detail" class="view hidden">
-      <div id="report-quick-bar" class="report-quick-bar hidden">
-        <span class="report-quick-label">Rapport disponible</span>
-        <button id="goto-report-btn" class="btn btn-primary btn-sm" type="button">Ouvrir le rapport</button>
-        <button id="download-report-quick" class="btn btn-ghost btn-sm" type="button">Télécharger</button>
-      </div>
-
-      <div class="detail-topbar">
-        <button id="back-btn" class="link-btn">← Retour</button>
-        <h2 id="detail-title" class="detail-topbar-title">Réunion</h2>
-        <div class="card-actions">
-          <button id="read-report-btn" class="btn btn-primary btn-sm hidden" type="button">Lire le rapport</button>
-          <button id="charts-toggle" class="btn btn-ghost hidden" type="button">Graphiques</button>
-          <button id="copy-summary-btn" class="btn btn-ghost hidden" type="button">Copier</button>
-          <button id="export-md-btn" class="btn btn-ghost hidden" type="button">Markdown</button>
-          <button id="reprocess-btn" class="btn btn-ghost hidden" type="button">Réessayer</button>
-          <button id="delete-meeting-btn" class="btn btn-danger btn-sm hidden" type="button">Supprimer</button>
-          <button id="export-pptx-btn" class="btn btn-secondary hidden" type="button">PowerPoint</button>
-          <span id="detail-status" class="badge">ready</span>
+      <div class="detail-hero card">
+        <button id="back-btn" class="detail-back" type="button">← Réunions</button>
+        <div class="detail-hero-row">
+          <div class="detail-hero-text">
+            <h1 id="detail-title" class="detail-title">Réunion</h1>
+            <p id="detail-meta" class="detail-meta"></p>
+          </div>
+          <div class="detail-hero-actions">
+            <span id="detail-status" class="badge">ready</span>
+            <button id="delete-meeting-btn" class="btn btn-quiet btn-sm" type="button">Supprimer</button>
+          </div>
         </div>
       </div>
 
       <div class="detail-layout">
         <div class="detail-main">
-          <div id="detail-kpi" class="detail-kpi hidden"></div>
-
-          <div id="charts-panel" class="charts-panel hidden">
-            <div class="dashboard-section-head">
-              <h2>Analyse de la réunion</h2>
-              <p>Indicateurs et graphiques détaillés</p>
-            </div>
-            <div class="charts-grid">
-              <div class="chart-box chart-box-premium"><canvas id="chart-distribution"></canvas></div>
-              <div class="chart-box"><canvas id="chart-actions"></canvas></div>
-              <div class="chart-box"><canvas id="chart-topics"></canvas></div>
-              <div class="chart-box"><canvas id="chart-radar"></canvas></div>
-              <div class="chart-box"><canvas id="chart-highlights"></canvas></div>
-              <div class="chart-box"><canvas id="chart-status"></canvas></div>
-            </div>
-          </div>
-
           <div class="card summary-panel">
-            <div class="tabs">
-              <button class="tab active" data-tab="report" id="tab-report-btn">Rapport</button>
-              <button class="tab" data-tab="summary">Résumé</button>
-              <button class="tab" data-tab="transcript">Transcription</button>
+            <div class="panel-head">
+              <div class="tabs tabs-segmented" role="tablist">
+                <button class="tab active" data-tab="report" id="tab-report-btn" type="button">Rapport</button>
+                <button class="tab" data-tab="summary" type="button">Résumé</button>
+                <button class="tab" data-tab="transcript" type="button">Transcription</button>
+              </div>
+              <div class="panel-tools">
+                <button id="open-report-overlay" class="tool-link" type="button">Plein écran</button>
+                <span class="tool-sep" aria-hidden="true">·</span>
+                <button id="download-report-inline" class="tool-link" type="button">Télécharger</button>
+                <span class="tool-sep" aria-hidden="true">·</span>
+                <button id="export-pptx-btn" class="tool-link hidden" type="button">PowerPoint</button>
+              </div>
             </div>
             <div id="tab-report" class="tab-content">
-              <div class="report-tab-toolbar">
-                <button id="download-report-inline" class="btn btn-ghost btn-sm" type="button">Télécharger le rapport (.html)</button>
-                <button id="open-report-overlay" class="btn btn-primary btn-sm" type="button">Plein écran</button>
-              </div>
               <div id="report-tab-content" class="report-body report-readable"></div>
             </div>
             <div id="tab-summary" class="tab-content hidden">
@@ -181,8 +145,11 @@
 
         <div class="card chat-panel">
           <div class="chat-header">
-            <h3>Agent Groq</h3>
-            <button id="clear-chat-btn" class="btn-icon" type="button" title="Effacer la conversation">🗑️</button>
+            <div>
+              <h3>Assistant réunion</h3>
+              <p class="chat-header-sub">Posez des questions sur ce compte-rendu</p>
+            </div>
+            <button id="clear-chat-btn" class="chat-clear" type="button">Effacer</button>
           </div>
           <div id="chat-messages" class="chat-messages">
             <div class="chat-empty">Posez une question sur cette réunion</div>
@@ -231,8 +198,7 @@
     </section>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-  <script src="app.js?v=11"></script>
+  <script src="app.js?v=13"></script>
 </body>
 </html>

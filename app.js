@@ -6,7 +6,6 @@ const THEME_KEY = 'teamsbrief_theme';
 
 const STATUS_LABELS = { ready: 'Prêt', processing: 'En cours', error: 'Erreur' };
 const GROQ_FALLBACK_MODEL = 'openai/gpt-oss-20b';
-let chartInstances = [];
 let globalChartInstances = [];
 
 const SUGGESTIONS = [
@@ -63,16 +62,9 @@ document.getElementById('back-btn').addEventListener('click', () => showView('me
 document.getElementById('save-settings').addEventListener('click', saveSettings);
 document.getElementById('chat-form').addEventListener('submit', handleChat);
 document.getElementById('export-pptx-btn').addEventListener('click', exportPresentation);
-document.getElementById('charts-toggle').addEventListener('click', toggleCharts);
 document.getElementById('delete-meeting-btn').addEventListener('click', deleteCurrentMeeting);
-document.getElementById('reprocess-btn').addEventListener('click', reprocessMeeting);
-document.getElementById('copy-summary-btn').addEventListener('click', copySummary);
-document.getElementById('export-md-btn').addEventListener('click', exportMarkdown);
-document.getElementById('read-report-btn').addEventListener('click', openReadableReport);
 document.getElementById('download-report-inline')?.addEventListener('click', downloadReportForCurrent);
 document.getElementById('open-report-overlay')?.addEventListener('click', openReportOverlayForCurrent);
-document.getElementById('goto-report-btn')?.addEventListener('click', openReadableReport);
-document.getElementById('download-report-quick')?.addEventListener('click', downloadReportForCurrent);
 document.getElementById('report-close-btn').addEventListener('click', closeReportOverlay);
 document.getElementById('report-download-btn').addEventListener('click', downloadCurrentReport);
 document.getElementById('report-print-btn').addEventListener('click', () => window.print());
@@ -228,12 +220,8 @@ function toggleTheme() {
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
-  document.getElementById('theme-toggle').textContent = theme === 'dark' ? '☀️' : '🌙';
-  chartInstances.forEach(c => c.destroy());
-  chartInstances = [];
+  document.getElementById('theme-toggle').textContent = theme === 'dark' ? 'Clair' : 'Sombre';
   destroyGlobalCharts();
-  const m = findMeeting(currentMeetingId);
-  if (m?.summary) renderCharts(m.summary);
   if (!views.detail.classList.contains('hidden')) return;
   renderDashboard();
 }
@@ -280,12 +268,7 @@ function hasReadableReport(m) {
   return (m.transcript || '').trim().length > 80;
 }
 
-function updateReportQuickBar(m) {
-  const bar = document.getElementById('report-quick-bar');
-  if (!bar) return;
-  const show = m && m.status === 'ready' && hasReadableReport(m);
-  bar.classList.toggle('hidden', !show);
-}
+function updateReportQuickBar() { /* barre retirée — rapport dans l’onglet principal */ }
 
 function exportBackup() {
   const blob = new Blob([JSON.stringify({ meetings, settings, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' });
@@ -627,172 +610,35 @@ function renderReportsHub() {
 
 function renderDashboard() {
   const kpiEl = document.getElementById('dashboard-kpis');
-  const chartsWrap = document.getElementById('dashboard-charts-wrap');
   if (!kpiEl) return;
 
   renderReportsHub();
 
   const g = computeGlobalStats();
+  const reportsReady = meetings.filter(m => hasReadableReport(m)).length;
   const subtitle = document.getElementById('meetings-stats');
   if (subtitle) {
     subtitle.textContent = g.total
-      ? `${g.total} réunion(s) · ${g.ready} prête(s) · ${g.actions} action(s) à suivre`
-      : 'Importez un fichier .vtt Teams pour alimenter votre tableau de bord.';
+      ? `${g.total} réunion(s) · ${reportsReady} rapport(s) · ${g.actions} action(s)`
+      : 'Importez une transcription Teams (.vtt) pour générer vos rapports d’appel.';
   }
 
   kpiEl.innerHTML = [
-    { label: 'Réunions', value: g.total, tone: 'brand', icon: '📁' },
-    { label: 'Prêtes', value: g.ready, tone: 'green', icon: '✓' },
-    { label: 'Décisions', value: g.decisions, tone: 'violet', icon: '⚖' },
-    { label: 'Actions', value: g.actions, tone: 'blue', icon: '☑' },
-    { label: 'Questions', value: g.questions, tone: 'orange', icon: '?' },
-    { label: 'Erreurs', value: g.error, tone: 'red', icon: '!' },
+    { label: 'Réunions', value: g.total, tone: 'brand' },
+    { label: 'Rapports', value: reportsReady, tone: 'green' },
+    { label: 'Actions', value: g.actions, tone: 'blue' },
+    { label: 'Erreurs', value: g.error, tone: 'red' },
   ].map(k => `
     <div class="kpi-card kpi-${k.tone}">
-      <div class="kpi-icon" aria-hidden="true">${k.icon}</div>
       <div class="kpi-body">
         <div class="kpi-value">${k.value}</div>
         <div class="kpi-label">${k.label}</div>
       </div>
     </div>
   `).join('');
-
-  destroyGlobalCharts();
-  if (!g.total || typeof Chart === 'undefined') {
-    chartsWrap?.classList.add('hidden');
-    document.getElementById('chart-hero-wrap')?.classList.add('hidden');
-    return;
-  }
-  ensureChartStyle();
-  const ui = getChartUi();
-  renderHeroChart(g);
-  chartsWrap?.classList.remove('hidden');
-
-  const statusLabels = ['Prêtes', 'En cours', 'Erreurs'];
-  const statusValues = [g.ready, g.processing, g.error];
-  if (statusValues.some(v => v > 0)) {
-    globalChartInstances.push(new Chart(document.getElementById('chart-global-status'), {
-      type: 'doughnut',
-      data: {
-        labels: statusLabels,
-        datasets: [doughnutDataset(statusValues, ui)],
-      },
-      options: {
-        ...chartBaseOptions('État des réunions', ui),
-        cutout: '68%',
-        plugins: {
-          ...chartBaseOptions('État des réunions', ui).plugins,
-          doughnutCenter: {
-            display: true,
-            value: g.total,
-            label: 'réunions',
-            color: ui.text,
-            subColor: ui.muted,
-          },
-        },
-      },
-    }));
-  }
-
-  const monthKeys = Object.keys(g.byMonth).sort().slice(-6);
-  if (monthKeys.length) {
-    const lineCanvas = document.getElementById('chart-global-volume');
-    globalChartInstances.push(new Chart(lineCanvas, {
-      type: 'line',
-      data: {
-        labels: monthKeys.map(k => {
-          const [y, mo] = k.split('-');
-          return `${mo}/${y.slice(2)}`;
-        }),
-        datasets: [{
-          label: 'Réunions',
-          data: monthKeys.map(k => g.byMonth[k]),
-          borderColor: '#5B5FC7',
-          backgroundColor: 'rgba(91, 95, 199, 0.12)',
-          fill: true,
-          tension: 0.42,
-          borderWidth: 3,
-          pointRadius: 5,
-          pointHoverRadius: 7,
-          pointBackgroundColor: '#fff',
-          pointBorderColor: '#5B5FC7',
-          pointBorderWidth: 2,
-        }],
-      },
-      options: {
-        ...chartBaseOptions('Activité (6 derniers mois)', ui),
-        plugins: { ...chartBaseOptions('Activité (6 derniers mois)', ui).plugins, legend: { display: false } },
-        scales: {
-          x: { ticks: { color: ui.muted, font: { size: 11 } }, grid: { display: false } },
-          y: { beginAtZero: true, ticks: { stepSize: 1, color: ui.muted }, grid: { color: ui.grid } },
-        },
-      },
-    }));
-  }
-
-  const owners = Object.entries(g.actionOwners).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  if (owners.length) {
-    const barCanvas = document.getElementById('chart-global-actions');
-    globalChartInstances.push(new Chart(barCanvas, {
-      type: 'bar',
-      data: {
-        labels: owners.map(([n]) => n),
-        datasets: [{
-          label: 'Actions',
-          data: owners.map(([, v]) => v),
-          borderRadius: 10,
-          borderSkipped: false,
-          backgroundColor: (ctx) => {
-            const { chart } = ctx;
-            const { ctx: c, chartArea } = chart;
-            if (!chartArea) return '#5B5FC7';
-            const hues = [['#464775', '#8B5CF6'], ['#5B5FC7', '#A5B4FC'], ['#059669', '#34D399']];
-            const pair = hues[ctx.dataIndex % hues.length];
-            return barGradient(c, chartArea, pair[0], pair[1]);
-          },
-        }],
-      },
-      options: {
-        ...chartBaseOptions('Actions par responsable', ui),
-        plugins: { ...chartBaseOptions('Actions par responsable', ui).plugins, legend: { display: false } },
-        scales: {
-          x: { ticks: { color: ui.muted }, grid: { display: false } },
-          y: { beginAtZero: true, ticks: { stepSize: 1, color: ui.muted }, grid: { color: ui.grid } },
-        },
-      },
-    }));
-  }
 }
 
-function renderDetailKpis(m) {
-  const el = document.getElementById('detail-kpi');
-  if (!el) return;
-  const s = coerceSummary(m.summary);
-  if (!s || m.status !== 'ready') {
-    el.classList.add('hidden');
-    el.innerHTML = '';
-    return;
-  }
-  const highlights = s.presentation?.highlights?.length || s.tldr?.length || 0;
-  const done = (m.doneActions || []).length;
-  const totalActions = s.actions?.length || 0;
-  const progress = totalActions ? Math.round((done / totalActions) * 100) : 0;
-
-  el.classList.remove('hidden');
-  el.innerHTML = `
-    <div class="kpi-card kpi-violet"><div class="kpi-body"><div class="kpi-value">${s.decisions?.length || 0}</div><div class="kpi-label">Décisions</div></div></div>
-    <div class="kpi-card kpi-blue"><div class="kpi-body"><div class="kpi-value">${totalActions}</div><div class="kpi-label">Actions</div></div></div>
-    <div class="kpi-card kpi-green"><div class="kpi-body"><div class="kpi-value">${highlights}</div><div class="kpi-label">Points clés</div></div></div>
-    <div class="kpi-card kpi-orange"><div class="kpi-body"><div class="kpi-value">${s.open_questions?.length || 0}</div><div class="kpi-label">Questions</div></div></div>
-    <div class="kpi-card kpi-brand kpi-progress">
-      <div class="kpi-body">
-        <div class="kpi-value">${progress}%</div>
-        <div class="kpi-label">Actions cochées (${done}/${totalActions})</div>
-        <div class="progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div>
-      </div>
-    </div>
-  `;
-}
+function renderDetailKpis() {}
 
 // ─── Liste ───
 function renderMeetingsList() {
@@ -872,31 +718,20 @@ function openMeeting(id) {
   m.summary = coerceSummary(m.summary);
 
   document.getElementById('detail-title').textContent = m.title;
+  const metaEl = document.getElementById('detail-meta');
+  if (metaEl) {
+    metaEl.textContent = new Date(m.date).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' });
+  }
   document.getElementById('detail-status').textContent = statusLabel(m.status);
   document.getElementById('detail-status').className = `badge ${m.status}`;
 
-  const readyReport = m.status === 'ready' && hasReadableReport(m);
   const readyAi = m.status === 'ready' && hasAiSummary(m);
-  ['read-report-btn'].forEach(btnId => { document.getElementById(btnId).hidden = !readyReport; });
-  ['export-pptx-btn', 'copy-summary-btn', 'export-md-btn'].forEach(btnId => {
-    document.getElementById(btnId).hidden = !readyAi;
-  });
-  updateReportQuickBar(m);
-  document.getElementById('reprocess-btn').hidden = !(m.status === 'error' || (m.transcript && !hasAiSummary(m)));
-  if (!document.getElementById('reprocess-btn').hidden) {
-    document.getElementById('reprocess-btn').textContent = m.status === 'error' ? 'Réessayer' : 'Générer le rapport IA';
+  const pptxBtn = document.getElementById('export-pptx-btn');
+  if (pptxBtn) {
+    pptxBtn.hidden = !readyAi;
+    pptxBtn.disabled = !readyAi;
   }
-  document.getElementById('delete-meeting-btn').hidden = false;
-  document.getElementById('export-pptx-btn').disabled = false;
-  document.getElementById('export-pptx-btn').textContent = 'PowerPoint';
-
-  const chartsToggle = document.getElementById('charts-toggle');
-  const chartsPanel = document.getElementById('charts-panel');
-  chartsPanel.classList.add('hidden');
-  chartsToggle.classList.add('hidden');
-  chartsToggle.classList.remove('active');
-  chartsToggle.textContent = 'Graphiques';
-  renderDetailKpis(m);
+  updateReportQuickBar(m);
 
   const defaultTab = (m.status === 'ready' && hasReadableReport(m)) ? 'report' : 'summary';
   switchTab(defaultTab);
@@ -905,31 +740,16 @@ function openMeeting(id) {
 
   const panel = document.getElementById('summary-content');
   if (m.status === 'processing') {
-    destroyCharts();
-    renderDetailKpis(m);
     panel.innerHTML = '<div class="loading-box"><div class="spinner"></div>Génération du résumé en cours…</div>';
   } else if (m.status === 'error') {
-    destroyCharts();
-    renderDetailKpis(m);
-    panel.innerHTML = `<div class="error-box">${esc(m.error || 'Erreur')}</div>`;
+    panel.innerHTML = `<div class="error-box">${esc(m.error || 'Erreur')}</div><p class="report-hint">Relancez depuis la liste avec le bouton <strong>Réessayer</strong>.</p>`;
   } else if (m.summary) {
     const html = renderSummary(m.summary, m);
-    panel.innerHTML = html || '<div class="empty-report">Résumé vide. Cliquez sur <strong>Réessayer</strong> pour régénérer.</div>';
+    panel.innerHTML = html || '<div class="empty-report">Résumé vide. Relancez la génération depuis la liste des réunions.</div>';
     renderReportTab(m);
-    try {
-      renderCharts(m.summary);
-      const hasCharts = !document.getElementById('charts-toggle').classList.contains('hidden');
-      if (hasCharts) {
-        chartsPanel.classList.remove('hidden');
-        chartsToggle.classList.remove('hidden');
-        chartsToggle.classList.add('active');
-        chartsToggle.textContent = 'Masquer graphiques';
-      }
-    } catch { /* graphiques optionnels */ }
     bindActionCheckboxes(m);
   } else {
-    destroyCharts();
-    panel.innerHTML = '<div class="empty-report">Aucun résumé disponible. Cliquez sur <strong>Réessayer</strong>.</div>';
+    panel.innerHTML = '<div class="empty-report">Aucun résumé disponible. Configurez Groq dans Paramètres puis relancez depuis la liste.</div>';
   }
 
   renderReportTab(m);
@@ -1036,37 +856,6 @@ function filterTranscript() {
   if (!q) { el.textContent = text; return; }
   const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
   el.innerHTML = esc(text).replace(re, match => `<mark>${match}</mark>`);
-}
-
-function summaryToMarkdown(m) {
-  const s = m.summary;
-  if (!s) return '';
-  let md = `# ${m.title}\n\n*${new Date(m.date).toLocaleString('fr-FR')}*\n\n`;
-  if (s.presentation?.executive_summary) md += `## Synthèse\n${s.presentation.executive_summary}\n\n`;
-  if (s.tldr?.length) md += `## En bref\n${s.tldr.map(p => `- ${p}`).join('\n')}\n\n`;
-  if (s.decisions?.length) md += `## Décisions\n${s.decisions.map(p => `- ${p}`).join('\n')}\n\n`;
-  if (s.actions?.length) md += `## Actions\n${s.actions.map(a => `- [ ] **${a.who}** — ${a.what}${a.when ? ` (${a.when})` : ''}`).join('\n')}\n\n`;
-  if (s.explanation_for_absent) md += `## Pour les absents\n${s.explanation_for_absent}\n\n`;
-  if (s.open_questions?.length) md += `## Questions\n${s.open_questions.map(p => `- ${p}`).join('\n')}\n`;
-  return md;
-}
-
-async function copySummary() {
-  const m = meetings.find(x => x.id === currentMeetingId);
-  if (!m?.summary) return;
-  await navigator.clipboard.writeText(summaryToMarkdown(m));
-  toast('Résumé copié');
-}
-
-function exportMarkdown() {
-  const m = meetings.find(x => x.id === currentMeetingId);
-  if (!m?.summary) return;
-  const blob = new Blob([summaryToMarkdown(m)], { type: 'text/markdown' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${m.title.slice(0, 40)}.md`;
-  a.click();
-  toast('Markdown exporté');
 }
 
 let reportMeetingCache = null;
@@ -1427,249 +1216,6 @@ function renderHeroChart(g) {
     },
   });
   globalChartInstances.push(chart);
-}
-
-function destroyCharts() {
-  chartInstances.forEach(c => c.destroy());
-  chartInstances = [];
-}
-
-function buildChartMetrics(summary) {
-  const distLabels = [];
-  const distValues = [];
-  const distMap = [
-    ['Décisions', summary.decisions?.length || 0],
-    ['Actions', summary.actions?.length || 0],
-    ['Thèmes', summary.topics?.length || 0],
-    ['Questions', summary.open_questions?.length || 0],
-    ['Points clés', (summary.presentation?.highlights || summary.tldr || []).length],
-  ];
-  distMap.forEach(([l, v]) => { if (v > 0) { distLabels.push(l); distValues.push(v); } });
-
-  const actionCounts = {};
-  (summary.actions || []).forEach(a => {
-    const who = (a.who || 'Non assigné').slice(0, 25);
-    actionCounts[who] = (actionCounts[who] || 0) + 1;
-  });
-
-  const topics = summary.topics || [];
-  const topicLabels = topics.map(t => (t.title || 'Thème').slice(0, 22));
-  const topicValues = topics.map(t => (t.key_points?.length || 1));
-
-  const highlights = summary.presentation?.highlights || summary.tldr || [];
-  const hlLabels = highlights.map((h, i) => {
-    const t = typeof h === 'object' ? h.title : h;
-    return (t || `Point ${i + 1}`).slice(0, 28);
-  });
-  const hlValues = highlights.map((h, i) => {
-    const d = typeof h === 'object' ? (h.detail || '') : '';
-    return Math.max(1, Math.round((d.length || String(h).length) / 40));
-  });
-
-  const radarLabels = ['Décisions', 'Actions', 'Thèmes', 'Questions', 'Points clés'];
-  const radarValues = [
-    summary.decisions?.length || 0,
-    summary.actions?.length || 0,
-    summary.topics?.length || 0,
-    summary.open_questions?.length || 0,
-    highlights.length,
-  ];
-
-  const statusLabels = [];
-  const statusValues = [];
-  const withDeadline = (summary.actions || []).filter(a => a.when && a.when !== 'non précisé').length;
-  const withoutDeadline = (summary.actions || []).length - withDeadline;
-  if (withDeadline) { statusLabels.push('Avec échéance'); statusValues.push(withDeadline); }
-  if (withoutDeadline) { statusLabels.push('Sans échéance'); statusValues.push(withoutDeadline); }
-  if (summary.decisions?.length) { statusLabels.push('Décisions'); statusValues.push(summary.decisions.length); }
-
-  return {
-    distribution: { labels: distLabels, values: distValues },
-    actions: { labels: Object.keys(actionCounts), values: Object.values(actionCounts) },
-    topics: { labels: topicLabels, values: topicValues },
-    highlights: { labels: hlLabels, values: hlValues },
-    radar: { labels: radarLabels, values: radarValues },
-    status: { labels: statusLabels, values: statusValues },
-  };
-}
-
-function toggleCharts() {
-  const panel = document.getElementById('charts-panel');
-  const btn = document.getElementById('charts-toggle');
-  const show = panel.classList.contains('hidden');
-  panel.classList.toggle('hidden', !show);
-  btn.classList.toggle('active', show);
-  btn.textContent = show ? 'Masquer graphiques' : 'Graphiques';
-}
-
-function renderCharts(summary) {
-  destroyCharts();
-  const panel = document.getElementById('charts-panel');
-  const toggle = document.getElementById('charts-toggle');
-  panel.classList.add('hidden');
-  toggle.classList.add('hidden');
-  toggle.classList.remove('active');
-  toggle.textContent = 'Graphiques';
-
-  if (!summary || typeof Chart === 'undefined') return;
-
-  const m = buildChartMetrics(summary);
-  const hasData = m.distribution.values.length || m.actions.values.length || m.topics.values.length;
-  if (!hasData) return;
-
-  toggle.classList.remove('hidden');
-  ensureChartStyle();
-  const ui = getChartUi();
-  const totalDist = m.distribution.values.reduce((a, b) => a + b, 0);
-
-  if (m.distribution.values.length) {
-    chartInstances.push(new Chart(document.getElementById('chart-distribution'), {
-      type: 'doughnut',
-      data: {
-        labels: m.distribution.labels,
-        datasets: [doughnutDataset(m.distribution.values, ui)],
-      },
-      options: {
-        ...chartBaseOptions('Répartition du compte-rendu', ui),
-        cutout: '62%',
-        plugins: {
-          ...chartBaseOptions('Répartition du compte-rendu', ui).plugins,
-          doughnutCenter: { display: true, value: totalDist, label: 'éléments', color: ui.text, subColor: ui.muted },
-        },
-      },
-    }));
-  }
-
-  if (m.actions.values.length) {
-    chartInstances.push(new Chart(document.getElementById('chart-actions'), {
-      type: 'bar',
-      data: {
-        labels: m.actions.labels,
-        datasets: [{
-          label: 'Actions',
-          data: m.actions.values,
-          borderRadius: 10,
-          borderSkipped: false,
-          backgroundColor: (ctx) => {
-            const { chart } = ctx;
-            const { ctx: c, chartArea } = chart;
-            if (!chartArea) return '#5B5FC7';
-            return barGradient(c, chartArea, '#464775', '#5B5FC7');
-          },
-        }],
-      },
-      options: {
-        ...chartBaseOptions('Actions par responsable', ui),
-        plugins: { ...chartBaseOptions('Actions par responsable', ui).plugins, legend: { display: false } },
-        scales: {
-          x: { ticks: { color: ui.muted }, grid: { display: false } },
-          y: { beginAtZero: true, ticks: { stepSize: 1, color: ui.muted }, grid: { color: ui.grid } },
-        },
-      },
-    }));
-  }
-
-  if (m.topics.values.length) {
-    chartInstances.push(new Chart(document.getElementById('chart-topics'), {
-      type: 'bar',
-      data: {
-        labels: m.topics.labels,
-        datasets: [{
-          label: 'Points abordés',
-          data: m.topics.values,
-          borderRadius: 10,
-          borderSkipped: false,
-          backgroundColor: (ctx) => {
-            const { chart } = ctx;
-            const { ctx: c, chartArea } = chart;
-            if (!chartArea) return '#059669';
-            return barGradient(c, chartArea, '#047857', '#34D399');
-          },
-        }],
-      },
-      options: {
-        ...chartBaseOptions('Profondeur par thème', ui),
-        indexAxis: 'y',
-        plugins: { ...chartBaseOptions('Profondeur par thème', ui).plugins, legend: { display: false } },
-        scales: {
-          x: { beginAtZero: true, ticks: { stepSize: 1, color: ui.muted }, grid: { color: ui.grid } },
-          y: { ticks: { color: ui.text, font: { weight: '600' } }, grid: { display: false } },
-        },
-      },
-    }));
-  }
-
-  if (m.radar.values.some(v => v > 0)) {
-    chartInstances.push(new Chart(document.getElementById('chart-radar'), {
-      type: 'radar',
-      data: {
-        labels: m.radar.labels,
-        datasets: [{
-          label: 'Intensité',
-          data: m.radar.values,
-          backgroundColor: 'rgba(91, 95, 199, 0.22)',
-          borderColor: '#5B5FC7',
-          borderWidth: 2,
-          pointBackgroundColor: '#fff',
-          pointBorderColor: '#464775',
-          pointBorderWidth: 2,
-          pointRadius: 4,
-          pointHoverRadius: 6,
-        }],
-      },
-      options: {
-        ...chartBaseOptions('Vue radar synthétique', ui),
-        scales: {
-          r: {
-            beginAtZero: true,
-            grid: { color: ui.grid },
-            angleLines: { color: ui.grid },
-            pointLabels: { color: ui.text, font: { size: 11, weight: '600' } },
-            ticks: { display: false },
-          },
-        },
-      },
-    }));
-  }
-
-  if (m.highlights.values.length) {
-    chartInstances.push(new Chart(document.getElementById('chart-highlights'), {
-      type: 'polarArea',
-      data: {
-        labels: m.highlights.labels,
-        datasets: [{
-          data: m.highlights.values,
-          backgroundColor: CHART_COLORS.map(c => c + 'CC'),
-          borderColor: CHART_COLORS,
-          borderWidth: 2,
-        }],
-      },
-      options: {
-        ...chartBaseOptions('Poids des points clés', ui),
-        scales: {
-          r: {
-            grid: { color: ui.grid },
-            ticks: { display: false },
-            pointLabels: { color: ui.muted, font: { size: 10 } },
-          },
-        },
-      },
-    }));
-  }
-
-  if (m.status.values.length) {
-    chartInstances.push(new Chart(document.getElementById('chart-status'), {
-      type: 'doughnut',
-      data: {
-        labels: m.status.labels,
-        datasets: [doughnutDataset(m.status.values, ui)],
-      },
-      options: {
-        ...chartBaseOptions('Suivi & décisions', ui),
-        cutout: '55%',
-      },
-    }));
-  }
 }
 
 // ─── Export PowerPoint (v2 — pro, lisible, fiable) ───
