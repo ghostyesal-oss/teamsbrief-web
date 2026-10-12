@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=16">
+  <link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
   <div id="toast-container" class="toast-container"></div>
@@ -36,8 +36,9 @@
       <span class="logo-text">TeamsBrief</span>
     </div>
     <nav class="header-nav">
-      <button class="nav-btn active" data-view="meetings">Réunions</button>
-      <button class="nav-btn" data-view="settings">Paramètres</button>
+      <button class="nav-btn active" data-view="meetings" type="button">Réunions</button>
+      <button class="nav-btn" data-view="backup" type="button">Backup</button>
+      <button class="nav-btn" data-view="settings" type="button">Paramètres</button>
       <button id="theme-toggle" class="nav-btn nav-btn-quiet" type="button" title="Thème">Thème</button>
     </nav>
   </header>
@@ -77,11 +78,6 @@
           <label class="btn btn-primary">
             Importer .vtt
             <input type="file" id="file-input" accept=".vtt,.txt" multiple hidden>
-          </label>
-          <button id="backup-export" class="btn btn-ghost btn-sm" type="button" title="Exporter une sauvegarde">Exporter</button>
-          <label class="btn btn-ghost btn-sm" title="Importer une sauvegarde">
-            Restaurer
-            <input type="file" id="backup-import" accept=".json" hidden>
           </label>
         </div>
       </div>
@@ -172,6 +168,22 @@
       </div>
     </section>
 
+    <section id="view-backup" class="view hidden backup-page">
+      <h1>Backup</h1>
+      <p class="settings-lead">Sauvegardez ou restaurez vos réunions et paramètres sur cet appareil.</p>
+      <div class="card backup-card">
+        <div id="backup-summary" class="backup-summary"></div>
+        <div class="backup-actions">
+          <button id="backup-export" class="btn btn-primary" type="button">Exporter la sauvegarde</button>
+          <label class="btn btn-ghost">
+            Restaurer une sauvegarde
+            <input type="file" id="backup-import" accept=".json" hidden>
+          </label>
+        </div>
+        <p class="backup-hint">Le fichier JSON contient vos réunions, rapports et clé de modèle (selon export). Conservez-le en lieu sûr.</p>
+      </div>
+    </section>
+
     <section id="view-settings" class="view hidden settings-page">
       <h1>Paramètres</h1>
       <p class="settings-lead">Connexion à Groq et gestion des données locales.</p>
@@ -194,16 +206,7 @@
         </label>
         <button id="save-settings" class="btn btn-primary">Enregistrer</button>
         <p id="settings-status" class="status-msg"></p>
-        <hr class="divider">
-        <h3 class="settings-sub">Données</h3>
-        <p class="hint">Vos réunions sont stockées localement dans ce navigateur.</p>
-        <div class="settings-actions">
-          <button id="settings-backup" class="btn btn-ghost" type="button">Exporter sauvegarde</button>
-          <label class="btn btn-ghost">
-            Importer sauvegarde
-            <input type="file" id="settings-restore" accept=".json" hidden>
-          </label>
-        </div>
+        <p class="hint backup-link-hint">Sauvegarde des réunions : onglet <button type="button" class="inline-link" data-view="backup">Backup</button>.</p>
       </div>
     </section>
   </main>
@@ -215,6 +218,6 @@
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-  <script src="app.js?v=16"></script>
+  <script src="app.js?v=17"></script>
 </body>
 </html>

@@ -52,11 +52,15 @@ let settings = loadSettings();
 const views = {
   meetings: document.getElementById('view-meetings'),
   detail: document.getElementById('view-detail'),
+  backup: document.getElementById('view-backup'),
   settings: document.getElementById('view-settings'),
 };
 
 // ─── Init ───
-document.querySelectorAll('.nav-btn').forEach(btn => {
+document.querySelectorAll('.nav-btn[data-view]').forEach(btn => {
+  btn.addEventListener('click', () => showView(btn.dataset.view));
+});
+document.querySelectorAll('.inline-link[data-view]').forEach(btn => {
   btn.addEventListener('click', () => showView(btn.dataset.view));
 });
 
@@ -85,8 +89,6 @@ document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
 document.getElementById('toggle-key').addEventListener('click', toggleKeyVisibility);
 document.getElementById('backup-export').addEventListener('click', exportBackup);
 document.getElementById('backup-import').addEventListener('change', importBackup);
-document.getElementById('settings-backup').addEventListener('click', exportBackup);
-document.getElementById('settings-restore').addEventListener('change', importBackup);
 document.getElementById('onboarding-go').addEventListener('click', () => showView('settings'));
 
 document.querySelectorAll('.tab').forEach(tab => {
@@ -124,12 +126,18 @@ function showView(name) {
     views.detail.classList.remove('hidden');
     views.detail.classList.add('view-enter');
     requestAnimationFrame(() => views.detail.classList.remove('view-enter'));
+  } else if (name === 'backup') {
+    views.backup.classList.remove('hidden');
+    views.backup.classList.add('view-enter');
+    requestAnimationFrame(() => views.backup.classList.remove('view-enter'));
+    document.querySelector('[data-view="backup"]').classList.add('active');
+    renderBackupSummary();
   } else if (name === 'settings') {
     views.settings.classList.remove('hidden');
     views.settings.classList.add('view-enter');
     requestAnimationFrame(() => views.settings.classList.remove('view-enter'));
     document.querySelector('[data-view="settings"]').classList.add('active');
-  } else {
+  } else if (name === 'meetings') {
     views.meetings.classList.remove('hidden');
     views.meetings.classList.add('view-enter');
     requestAnimationFrame(() => views.meetings.classList.remove('view-enter'));
@@ -137,7 +145,19 @@ function showView(name) {
     currentMeetingId = null;
     renderMeetingsList();
     renderDashboard();
+  } else {
+    showView('meetings');
   }
+}
+
+function renderBackupSummary() {
+  const el = document.getElementById('backup-summary');
+  if (!el) return;
+  const n = meetings.length;
+  const ready = meetings.filter(m => hasReadableReport(m)).length;
+  el.innerHTML = n
+    ? `<p><strong>${n}</strong> réunion(s) enregistrée(s) localement · <strong>${ready}</strong> rapport(s) lisible(s).</p>`
+    : '<p>Aucune réunion pour l’instant. Importez des fichiers .vtt depuis l’onglet Réunions.</p>';
 }
 
 // ─── Storage ───
@@ -343,6 +363,7 @@ function exportBackup() {
   a.download = `teamsbrief-backup-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   toast('Sauvegarde exportée');
+  renderBackupSummary();
 }
 
 async function importBackup(e) {
@@ -358,6 +379,7 @@ async function importBackup(e) {
     if (settings.model) document.getElementById('groq-model').value = settings.model;
     updateOnboarding();
     renderMeetingsList();
+    renderBackupSummary();
     toast(`${meetings.length} réunion(s) restaurée(s)`);
   } catch { toast('Fichier invalide', 'error'); }
 }
@@ -736,7 +758,7 @@ function renderReportsHub() {
         <button type="button" class="btn btn-ghost btn-sm" id="retry-all-failed">Réessayer tout</button>` : ''}
       ${pending.length ? `<p>${pending.length} génération(s) bloquée(s) ou en cours.</p>
         <button type="button" class="btn btn-primary btn-sm" id="resume-all-processing">Relancer la génération</button>` : ''}
-      ${!failed.length && !pending.length ? '<p>Importez un fichier .vtt ou utilisez <strong>Exporter / Restaurer</strong> pour une sauvegarde.</p>' : ''}
+      ${!failed.length && !pending.length ? '<p>Importez un fichier .vtt ou restaurez une sauvegarde via l’onglet <strong>Backup</strong>.</p>' : ''}
       <p class="reports-hub-origin">Les données sont enregistrées <strong>dans ce navigateur</strong> pour cette adresse web (GitHub ≠ Vercel = listes différentes).</p>
     </div>`;
   }
